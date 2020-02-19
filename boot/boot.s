@@ -89,8 +89,7 @@ load_root:
 	mov cx, root_size_in_sectors
 
 	; Load the root directory after the FAT.
-	mov bx, os_base_addr + sectors_per_fat * bytes_per_sector
-	mov [root], bx
+	mov bx, root_addr
 
 	call read_sectors
 	mov di, io_err
@@ -115,19 +114,14 @@ search_kalos_sys:
 	jc err				; CF is set in case of error
 
 ; Load io file
-	; Calculate where to load file
-	mov bx, [root]
-	add bx, root_size_in_bytes
-
+	mov bx, io_addr			; Where to load file
 	mov dx, [io_first_cluster]	; First cluster of file in FAT
 	call load_file
 	mov di, io_err
 	jc err				; CF is set in case of error
 
 ; Load kernel
-	; bx is already set after the previous call to load_file
-	; to point to the sector after the previous loaded file.
-	; This is where we want to load the new file, so we don't touch it
+	mov bx, kernel_addr		; Where to load file
 	mov dx, [kernel_first_cluster]	; First cluster of file in FAT
 	call load_file
 	mov di, io_err
@@ -139,8 +133,7 @@ search_kalos_sys:
 
 	xor ax, ax
 	push ax
-	mov ax, [root]
-	add ax, root_size_in_bytes
+	mov ax, io_addr
 	push ax
 	retf
 
@@ -241,7 +234,7 @@ read_sectors:
 search_file:
 	cld				; We want to auto-increment when comparing strings
 	mov ax, di			; Save di
-	mov bx, [root]			; bx contains the root address
+	mov bx, root_addr		; bx contains the root address
 	mov si, bx			; Also si
 	mov cx, root_entries		; cx contains the number of entries to check
 
@@ -273,7 +266,6 @@ search_file:
 ; TODO: Properly document the subroutine
 ; Input:	dx = Offset of the file to load
 ;		bx = Location to load the file
-; Output:	bx = First byte after the located file
 ; Modified registers:	ax, bx, cx, dx, si
 load_file:
 .load_sector:
@@ -320,9 +312,9 @@ load_file:
 	and dx, 0x0fff
 
 .next_cluster_cont:
-	add bx, 512
 	cmp dx, 0xff8
 	jae .end
+	add bx, 512
 	jmp .load_sector
 
 .end:
@@ -332,10 +324,8 @@ load_file:
 
 
 ; DATA ------------------------------------------------------------------------
-; TODO: Rationalize variables containing memory locations (i.e. root)
 io_filename		db "IO      SYS"
 kernel_filename		db "KALOS   SYS"
-root			dw 0x0000
 io_first_cluster	dw 0x0000
 kernel_first_cluster	dw 0x0000
 io_err			db 'IO error',0

@@ -27,5 +27,5 @@ bpb_addr		equ	bootloader_addr + 3
 os_base_addr		equ	0x500
 fat_addr		equ	os_base_addr
 root_addr		equ	fat_addr + fat_size_in_bytes
-io_sys_addr		equ	root_addr + root_size_in_bytes
-kernel_sys_addr		equ	io_sys_addr + io_sys_size_in_bytes
+io_addr			equ	root_addr + root_size_in_bytes
+kernel_addr		equ	io_addr + io_sys_size_in_bytes
