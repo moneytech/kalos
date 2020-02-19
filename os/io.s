@@ -225,6 +225,8 @@ set_os_cursor:
 	mov [k_col], ah		; Current col is cursor mod cols
 
 	retf
+; update_os_cursor subroutine end
+; set_os_cursor subroutine end
 
 
 
