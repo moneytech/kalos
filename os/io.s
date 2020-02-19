@@ -2,7 +2,7 @@
 
 [bits 16]
 [cpu 8086]
-[org io_addr]
+[org io_addr]	; We are in segment 0, so we have to shift our labels by io_addr (the address where we are loaded)
 
 ; MAIN SECTION ----------------------------------------------------------------
 ; Memory ----------------------------------------
@@ -23,16 +23,9 @@ cols	equ	80
 lines	equ	25
 
 	; We need to access the CRT controller registers to interact with the hardware cursor on screen.
-	; The input and output ports for the CRT registers depend on bit 0 in the VGA miscellaneous output register:
-	;  if bit 0 of this miscellaneous output register is set, then the ports are the same as the CGA (0x3d4, 0x3d5);
-	;  if bit 0 is clear, then the ports are the same as the MDA (0x3b4, 0x3b5).
-	; While we are dealing with the miscellaneous output register, we also set the RAM enable bit (bit 1), so that
-	;  we can be sure that the VGA hardware does not ignore writes to its address space.
-	mov dx, 0x3cc		; VGA miscellaneous output register read port
-	in al, dx		; Read from read port to ax
-	or al, 00000011b	; Set the last two bits of ax to 1, leaving the others unchanged
-	mov dx, 0x3c2		; VGA miscellaneus output register write port
-	out dx, al		; Write back to write port
+	; To do so, we first tell the VGA that we wish to use CGA-compatible port numbers for the CRT registers.
+	mov cl, 0xd0	; 0xd0 is for CGA-compatible mode
+	call 0x0000:set_vga_register_compatibility_mode
 
 	; We can now get the current cursor location from the CRT controller.
 	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
@@ -175,19 +168,23 @@ set_hw_cursor:
 	add bx, ax 
 
 	; Set low byte of cursor using the CRT register 0x0f
-	mov dx, 0x3d4	; CRT address
+	mov dx, 0x304	; CRT address
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f	; Low cursor
 	out dx, al 
 	mov al, bl
-	mov dx, 0x3d5	; CRT data
+	mov dx, 0x305	; CRT data
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	; Set high byte of cursor using the CRT register 0x0f
-	mov dx, 0x3d4	; CRT address
+	mov dx, 0x304	; CRT address
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e	; high cursor
 	out dx, al 
 	mov al, bh
-	mov dx, 0x3d5	; CRT data
+	mov dx, 0x305	; CRT data
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	retf
@@ -201,16 +198,20 @@ update_os_cursor:
 	; Get the current cursor location from the CRT controller.
 	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
 	; Then, we can read the current value of the regsters from the data port.
-	mov dx, 0x3d4		; CRT address port
+	mov dx, 0x304		; CRT address port
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f		; Low byte of cursor index
 	out dx, al
-	mov dx, 0x3d5		; CRT data port
+	mov dx, 0x305		; CRT data port
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bl, al		; Save low part of cursor
-	mov dx, 0x3d4		; CRT address port
+	mov dx, 0x304		; CRT address port
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e		; High byte of cursor index
 	out dx, al
-	mov dx, 0x3d5		; CRT data port
+	mov dx, 0x305		; CRT data port
+	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bh, al		; Save high part of cursor
 
@@ -227,6 +228,28 @@ set_os_cursor:
 	retf
 ; update_os_cursor subroutine end
 ; set_os_cursor subroutine end
+
+; set_vga_register_compatibility_mode subroutine begin
+; Some VGA used ports (e.g. the input and output ports for the CRT registers) depend on bit 0 of the VGA miscellaneous output register:
+;  if bit 0 of this miscellaneous output register is set, then the ports are the same as the CGA (CGA compatibility)
+;  if bit 0 is clear, then the ports are the same as the MDA (MDA compatibility)
+; This subroutine sets the bit as requested by the caller
+; Input:	cl = 0xd0 for CGA, 0xb0 for MBA
+set_vga_register_compatibility_mode: 
+	mov dx, 0x3cc		; VGA miscellaneous output register read port
+	in al, dx		; Read from read port to ax
+	cmp cl, 0xd0
+	je .cga
+.mba:
+	and al, 11111110b	; Clear the lst bit of ax, leaving the others unchanged
+	jmp .end
+.cga:
+	or al, 00000001b	; Set the last bit of ax to 1, leaving the others unchanged
+.end:
+	mov dx, 0x3c2		; VGA miscellaneus output register write port
+	out dx, al		; Write back to write port
+	mov [k_vga_reg_compatibility_mode], cl
+	retf
 
 
 
@@ -249,10 +272,13 @@ k_bpb_addr		dw bpb_addr
 k_available_memory	dw 0x0000
 
 ; Video -----------------------------------------
-k_col			db 0x00
-k_line			db 0x00
+k_col				db 0x00
+k_line				db 0x00
+k_vga_reg_compatibility_mode	db 0xd0
 
 ; I/O subroutines -------------------------------
 ; TODO: insert pointers to every subroutine we wish to pass to kernel
 
-times 512 - ($ - $$)	db 0x00		; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector
+; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector.
+; This is pretty ugly, but I think it is better to have bpb, io.sys and kernel in the same segment.
+times 512 - ($ - $$)	db 0x00
