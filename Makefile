@@ -16,7 +16,7 @@ os/kalos.sys: os/kalos.s
 	mcopy -i "${DISK}" os/kalos.sys ::
 
 clean:
-	- rm boot/boot os/io.sys os/kernel.sys
+	- rm boot/boot os/io.sys os/kalos.sys
 
 init:
 	/sbin/mkfs.msdos -C "${DISK}" 1440

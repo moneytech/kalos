@@ -2,7 +2,7 @@
 
 [bits 16]
 [cpu 8086]
-[org kernel_sys_addr]
+[org kernel_addr]
 
 mov ah, 0x0e
 mov al, 'K'

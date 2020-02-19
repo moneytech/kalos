@@ -2,7 +2,7 @@
 
 [bits 16]
 [cpu 8086]
-[org io_sys_addr]
+[org io_addr]
 
 ; MAIN SECTION ----------------------------------------------------------------
 ; Memory ----------------------------------------
@@ -62,7 +62,7 @@ testing:
 	call 0x0000:update_hw_cursor
 
 	; Jump to the kernel
-	mov ax, kernel_sys_addr
+	mov ax, kernel_addr
 	hlt
 	jmp ax
 	hlt
@@ -239,8 +239,8 @@ kernel_table:
 ; Memory ----------------------------------------
 ; All addresses are offset of segment 0x0000
 k_kernel_table_addr	dw kernel_table
-k_io_sys_addr		dw io_sys_addr
-k_kernel_sys_addr	dw kernel_sys_addr
+k_io_addr		dw io_addr
+k_kernel_addr		dw kernel_addr
 k_fat_addr		dw fat_addr
 k_root_addr		dw root_addr
 k_bpb_addr		dw bpb_addr
