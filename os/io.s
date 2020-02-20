@@ -5,11 +5,6 @@
 [org io_addr]	; We are in segment 0, so we have to shift our labels by io_addr (the address where we are loaded)
 
 ; MAIN SECTION ----------------------------------------------------------------
-; Memory ----------------------------------------
-	; Interrupt 0x12 returns in ax the number of available contiguous kilobytes of memory starting from 0x00000
-	; The size of conventional memory is 640kB, but the last part of it (at most 128kB) is used by the Extended Bios Data Area
-	int 0x12
-	mov [k_available_memory], ax
 
 
 ; Output ----------------------------------------
@@ -28,8 +23,6 @@ lines	equ	25
 	call 0x0000:set_vga_register_compatibility_mode
 
 	; We can now get the current cursor location from the CRT controller.
-	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
-	; Then, we can read the current value of the regsters from the data port.
 	call 0x0000:update_os_cursor
 
 ; Input -----------------------------------------
@@ -56,6 +49,7 @@ testing:
 
 	; Jump to the kernel
 	mov ax, kernel_addr
+	mov bx, io_table
 	hlt
 	jmp ax
 	hlt
@@ -80,30 +74,30 @@ print_char:
 ; Input:	al = character to print, ah = character attribute
 print_char_with_attr:
 	push ax
-	; bx = offset = 2 * (k_col + k_line * cols)
-	mov al, [k_line]
+	; bx = offset = 2 * (io_col + io_line * cols)
+	mov al, [io_line]
 	mov bl, cols
-	mul byte bl		; ax = al * bl = k_line * cols
+	mul byte bl		; ax = al * bl = io_line * cols
 	xor bx, bx
-	mov bl, [k_col]
-	add bx, ax		; bx += ax = k_col + k_line * cols
+	mov bl, [io_col]
+	add bx, ax		; bx += ax = io_col + io_line * cols
 	shl bx, 1 		; Multiply bx by 2, because each character occupies two bytes
 	pop ax
 	mov [es:bx], ax		; Move the byte to video memory
 
-	mov ah, [k_col]
+	mov ah, [io_col]
 	inc ah
-	mov [k_col], ah		; Next column
+	mov [io_col], ah		; Next column
 	mov al, cols
 	cmp ah, al
 	jl return		; End of line not reached
 
 	; End of line reached
 	xor ah, ah
-	mov [k_col], ah		; Set column to 0
-	mov ah, [k_line]
+	mov [io_col], ah		; Set column to 0
+	mov ah, [io_line]
 	inc ah
-	mov [k_line], ah	; Next line
+	mov [io_line], ah	; Next line
 	mov al, lines
 	cmp ah, al
 	jl return		; End of screen not reached
@@ -144,7 +138,7 @@ scroll:
 	pop ds
 	mov al, lines
 	sub al, dl
-	mov [k_line], al
+	mov [io_line], al
 return:
 	retf
 ; print_char subroutine end
@@ -156,8 +150,8 @@ return:
 ; update_hw_cursor subroutine begin
 ; Set the hardware cursor equal to the os cursor
 update_hw_cursor:
-	mov al, [k_line]
-	mov bl, [k_col]
+	mov al, [io_line]
+	mov bl, [io_col]
 ; set_hw_cursor subroutine begin
 ; Input: al, bl = line and column to set the hw cursor to
 set_hw_cursor:
@@ -169,22 +163,22 @@ set_hw_cursor:
 
 	; Set low byte of cursor using the CRT register 0x0f
 	mov dx, 0x304	; CRT address
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f	; Low cursor
 	out dx, al 
 	mov al, bl
 	mov dx, 0x305	; CRT data
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	; Set high byte of cursor using the CRT register 0x0f
 	mov dx, 0x304	; CRT address
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e	; high cursor
 	out dx, al 
 	mov al, bh
 	mov dx, 0x305	; CRT data
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	retf
@@ -199,19 +193,19 @@ update_os_cursor:
 	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
 	; Then, we can read the current value of the regsters from the data port.
 	mov dx, 0x304		; CRT address port
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f		; Low byte of cursor index
 	out dx, al
 	mov dx, 0x305		; CRT data port
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bl, al		; Save low part of cursor
 	mov dx, 0x304		; CRT address port
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e		; High byte of cursor index
 	out dx, al
 	mov dx, 0x305		; CRT data port
-	add dx, [k_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dx, [io_vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bh, al		; Save high part of cursor
 
@@ -222,8 +216,8 @@ update_os_cursor:
 ; set_os_cursor subroutine begin
 ; Input:	al, ah = line and col to set the os cursor to
 set_os_cursor:
-	mov [k_line], al	; Current line is cursor / cols
-	mov [k_col], ah		; Current col is cursor mod cols
+	mov [io_line], al	; Current line is cursor / cols
+	mov [io_col], ah		; Current col is cursor mod cols
 
 	retf
 ; update_os_cursor subroutine end
@@ -248,7 +242,7 @@ set_vga_register_compatibility_mode:
 .end:
 	mov dx, 0x3c2		; VGA miscellaneus output register write port
 	out dx, al		; Write back to write port
-	mov [k_vga_reg_compatibility_mode], cl
+	mov [io_vga_reg_compatibility_mode], cl
 	retf
 
 
@@ -259,22 +253,12 @@ set_vga_register_compatibility_mode:
 
 ; KERNEL TABLE ----------------------------------------------------------------
 ; This table is initialized to contain all the information useful for the kernel.
-kernel_table:
-
-; Memory ----------------------------------------
-; All addresses are offset of segment 0x0000
-k_kernel_table_addr	dw kernel_table
-k_io_addr		dw io_addr
-k_kernel_addr		dw kernel_addr
-k_fat_addr		dw fat_addr
-k_root_addr		dw root_addr
-k_bpb_addr		dw bpb_addr
-k_available_memory	dw 0x0000
+io_table:
 
 ; Video -----------------------------------------
-k_col				db 0x00
-k_line				db 0x00
-k_vga_reg_compatibility_mode	db 0xd0
+io_col				db 0x00
+io_line				db 0x00
+io_vga_reg_compatibility_mode	db 0xd0
 
 ; I/O subroutines -------------------------------
 ; TODO: insert pointers to every subroutine we wish to pass to kernel
