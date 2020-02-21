@@ -1,4 +1,5 @@
-%include "geometry.s"
+%include "geometry.inc"
+%include "io.inc"
 
 [bits 16]
 [cpu 8086]
@@ -11,10 +12,8 @@
 ; TODO: Check video mode (it should be 0x07 by default, but I have to do more reaserch to understand if it is always true)
 ; TODO: cols and lines shouldn't be constants, since they depend on video mode. Perhaps save them in the kernel table?
 ; TODO: Understand if the VGA hardware cursor is the same used by the teletype int 10,e
-	mov ax, 0xb800
+	mov ax, video_buffer
 	mov es, ax	; Set the extra segment to the VGA video memory for color output
-cols	equ	80
-lines	equ	25
 
 	; We need to access the CRT controller registers to interact with the hardware cursor on screen.
 	; To do so, we first tell the VGA that we wish to use CGA-compatible port numbers for the CRT registers.
@@ -34,23 +33,23 @@ lines	equ	25
 	; Bit 1: 0 because there are multiple PICs in the system
 	; Bit 0: 1 so we can send ICW4
 	mov al, 00010001b
-	out 0x20, al	; Primary PIC command register
-	out 0xa0, al	; Slave PIC command register
+	out pic_primary_addr, al	; Primary PIC command register
+	out pic_secondary_addr, al	; Secondary PIC command register
 
 	; ICW2: second initialization word, used to tell the PIC which interrupts it should trigger
 	; The interrupt corresponding to IRQ0 (the byte we write to the data register) must be a multiple of 8.
 	; We keep the default values of 0x08 and 0x70 (but we must write them anyway because during initialization the default gets overwritten).
-	mov al, 0x08	; Primary PIC maps IRQ 0 to 7 to interrupt 0x08 to 0x0f
-	out 0x21, al	; Primary PIC data register
-	mov al, 0x70	; Slave PIC maps IRQ 8 to 15 to interrupt 0x70 to 0x77
-	out 0xa1, al	; Primary PIC data register
+	mov al, pic_irq0_int		; Primary PIC maps IRQ 0 to 7 starting from this interrupt
+	out pic_primary_data, al	; Primary PIC data register
+	mov al, pic_irq8_int		; Secondary PIC maps IRQ 8 to 15 starting from this interrupt
+	out pic_secondary_data, al	; Secondary PIC data register
 
 	; ICW3: tell the PICs which IRQ line to use to comunicate between each other
 	; The format for primary and slave is different!
-	mov al, 00000100b	; Primary PIC: bit 2 is set, so use IRQ2
-	out 0x21, al		; Primary PIC data register
-	mov al, 0x2		; Slave PIC: the byte is 0x2, so use IRQ2
-	out 0xa1, al		; Slave PIC data register
+	mov al, 00000100b		; Primary PIC: bit 2 is set, so use IRQ2
+	out pic_primary_data, al	; Primary PIC data register
+	mov al, 0x2			; Slave PIC: the byte is 0x2, so use IRQ2
+	out pic_secondary_data, al	; Slave PIC data register
 
 	; ICW4: extra information
 	; Bits 5-7: reserved, must be 0
@@ -60,32 +59,61 @@ lines	equ	25
 	; Bit 1: we also don't need this (automatic EOI on acknowledge pulse), so 0
 	; Bit 0: if 1, 80x86 mode (what we want). If clear, MCS-80/86 mode
 	mov al, 00000001b
-	out 0x21, al		; Primary PIC data register
-	out 0xa1, al		; Slave PIC data regiter
+	out pic_primary_data, al
+	out pic_secondary_data, al
 
+	; OCW1: Operational Command Word 1
 	; Disable all IRQs in both pics
 	; We will enable each of them when we install the interrupt handler
 	; Each bit corresponds to a different IRQ. 1 means IRQ disabled, 0 means IRQ enabled
-	mov al, 11111111b	; Disable all 8 IRQs
-	out 0x21, al		; Write to primary PIC Interrupt Mask Register
-	out 0xa1, al		; Write to slave PIC Interrupt Mask Register
+	mov al, 11111111b		; Disable all 8 IRQs
+	out pic_primary_data, al	; Write to primary PIC Interrupt Mask Register
+	out pic_secondary_data, al	; Write to slave PIC Interrupt Mask Register
 
-; Keyboard --------------------------------------
+	; OCW3: Operational Command Word 3
+	; Bit 7: reserved, must be 0
+	; Bit 6: special mask mode (we don't want it, so 0)
+	; Bit 5: mask mode (0 for normal)
+	; Bits 4-3: 01b for OCW3
+	; Bit 2: polling mode (we want interrupt mode, so 0)
+	; Bits 1-0: which register to make available on address port (we are not interested, so 10b for IRR just because we have to choose one)
+	mov al, 00001010b
+	out pic_primary_data, al
+	out pic_secondary_data, al
+
+	; Enable interrupts in the cpu
+	; At this point, in the PIC all interrupt are still disabled
+	sti
+
+
+; PIT (timer) -----------------------------------------------------------------
+	; TODO: Configure timer
 	; Install interrupt
-
 	xor bx, bx
-	mov word [4*0x09], irq_1_keyboard
-	mov word [4*0x09 + 2], bx
+	mov word [4 * pic_irq0_int], irq_0_pit
+	mov word [4 * pic_irq0_int + 2], bx
 
 	; Enable interrupt in PIC
-	in al, 0x21
+	in al, pic_primary_data
+	and al, 11111110b
+	out 0x21, al
+	
+
+; Keyboard --------------------------------------
+	; TODO: Initialize keyboard (if needed)
+	; Install interrupt
+	xor bx, bx
+	mov word [4 * (pic_irq0_int+1)], irq_1_keyboard
+	mov word [4 * (pic_irq0_int+1) + 2], bx
+
+	; Enable interrupt in PIC
+	in al, pic_primary_data
 	and al, 11111101b
 	out 0x21, al
 
 ; KERNEL CALL------------------------------------------------------------------
 
 	; Debug code
-	sti
 the_end:
 	hlt
 	jmp the_end
@@ -98,14 +126,44 @@ the_end:
 
 
 ; INTERRUPT HANDLERS
+irq_0_pit:
+	; TODO: implement handler
+	push ax
+
+	; Uncomment these lines to check if the handler works
+	; Interrupts are not preserved if this code is executed!
+	;push ds
+	;xor ax, ax
+	;mov ds, ax
+	;mov al, 'T'
+	;call 0x0000:print_char
+	;call 0x0000:update_hw_cursor
+
+	; OCW2
+	mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
+	out pic_primary_addr, al
+
+	pop ax
+	iret
+
 
 irq_1_keyboard:
-	mov al, 'K'
-	call 0x0000:print_char
-	call 0x0000:update_hw_cursor
-	mov al, 00010000b		; Bit 5 is set: End Of Interrupt (EOI) request
-	out 0x20, al
+	; TODO: implement handler
+	push ax
+	in al, 0x64		; Keyboard command
+	test al, 00000010b	; Ready for read?
+	jnz irq_1_keyboard
 	in al, 0x60
+
+	; Uncomment these lines to check if the handler works
+	; Interrupts are not preserved if this code is executed!
+	;mov al, 'K'
+	;call 0x0000:print_char
+	;call 0x0000:update_hw_cursor
+	;mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
+	;out 0x20, al
+
+	pop ax
 	iret
 
 ; SUBROUTINES FOR KERNEL ------------------------------------------------------

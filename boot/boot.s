@@ -17,7 +17,7 @@
 ; allowing us to save space thet would be used by arithmetic instruction (we have to stay below 512 bytes).
 ; The hard coded value is stored in the geometry file, so that is the one to change if the OS is ported
 ; to another floppy format (very unlikely to happen).
-%include 'geometry.s'
+%include 'geometry.inc'
 
 [bits 16]	; The pc starts in real mode
 [cpu 8086]	; And we don't want to use i386 instructions (bootloaders usually assume to be on a 8086, and it's more fun)
