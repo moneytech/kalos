@@ -38,12 +38,14 @@ lines	equ	25
 	out 0xa0, al	; Slave PIC command register
 
 	; ICW2: second initialization word, used to tell the PIC which interrupts it should trigger
-	mov al, 0x22	; Primary PIC maps IRQ 0 to 7 to interrupt 0x22 to 0x29
+	; The interrupt corresponding to IRQ0 (the byte we write to the data register) must be a multiple of 8.
+	; We keep the default values of 0x08 and 0x70 (but we must write them anyway because during initialization the default gets overwritten).
+	mov al, 0x08	; Primary PIC maps IRQ 0 to 7 to interrupt 0x08 to 0x0f
 	out 0x21, al	; Primary PIC data register
-	mov al, 0x52	; Slave PIC maps IRQ 8 to 15 to interrupt 0x52 to 0x59
+	mov al, 0x70	; Slave PIC maps IRQ 8 to 15 to interrupt 0x70 to 0x77
 	out 0xa1, al	; Primary PIC data register
 
-	; ICW3: tell the PICs which IRQ line tu use to comunicate between each other
+	; ICW3: tell the PICs which IRQ line to use to comunicate between each other
 	; The format for primary and slave is different!
 	mov al, 00000100b	; Primary PIC: bit 2 is set, so use IRQ2
 	out 0x21, al		; Primary PIC data register
@@ -61,40 +63,50 @@ lines	equ	25
 	out 0x21, al		; Primary PIC data register
 	out 0xa1, al		; Slave PIC data regiter
 
-	; Null out the data register
-	xor al, al
-	out 0x21, al
-	out 0xa1, al
+	; Disable all IRQs in both pics
+	; We will enable each of them when we install the interrupt handler
+	; Each bit corresponds to a different IRQ. 1 means IRQ disabled, 0 means IRQ enabled
+	mov al, 11111111b	; Disable all 8 IRQs
+	out 0x21, al		; Write to primary PIC Interrupt Mask Register
+	out 0xa1, al		; Write to slave PIC Interrupt Mask Register
 
-; Input -----------------------------------------
-; TODO: implement input
+; Keyboard --------------------------------------
+	; Install interrupt
+
+	xor bx, bx
+	mov word [4*0x09], irq_1_keyboard
+	mov word [4*0x09 + 2], bx
+
+	; Enable interrupt in PIC
+	in al, 0x21
+	and al, 11111101b
+	out 0x21, al
 
 ; KERNEL CALL------------------------------------------------------------------
 
-	; This code is here to test that everything works and will eventually be removed
-	mov cx, 1119
-testing:
-	push cx
-	mov al, 'I'
-	call 0x0000:print_char
-	pop cx
-	loop testing
-	call 0x0000:update_hw_cursor
-
-	mov al, 'I'
-	call 0x0000:print_char
-	call 0x0000:update_hw_cursor
-	mov al, 'I'
-	call 0x0000:print_char
-	call 0x0000:update_hw_cursor
+	; Debug code
+	sti
+the_end:
+	hlt
+	jmp the_end
 
 	; Jump to the kernel
 	mov ax, kernel_addr
 	mov bx, io_table
-	hlt
 	jmp ax
 	hlt
 
+
+; INTERRUPT HANDLERS
+
+irq_1_keyboard:
+	mov al, 'K'
+	call 0x0000:print_char
+	call 0x0000:update_hw_cursor
+	mov al, 00010000b		; Bit 5 is set: End Of Interrupt (EOI) request
+	out 0x20, al
+	in al, 0x60
+	iret
 
 ; SUBROUTINES FOR KERNEL ------------------------------------------------------
 ; In this section, there are the subroutines which will be available to the kernel and the programs trough the kernel table.
