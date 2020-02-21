@@ -7,8 +7,7 @@
 ; MAIN SECTION ----------------------------------------------------------------
 
 
-; Output ----------------------------------------
-; - Video -----------------------------
+; Video -----------------------------------------
 ; TODO: Check video mode (it should be 0x07 by default, but I have to do more reaserch to understand if it is always true)
 ; TODO: cols and lines shouldn't be constants, since they depend on video mode. Perhaps save them in the kernel table?
 ; TODO: Understand if the VGA hardware cursor is the same used by the teletype int 10,e
@@ -24,6 +23,48 @@ lines	equ	25
 
 	; We can now get the current cursor location from the CRT controller.
 	call 0x0000:update_os_cursor
+
+; PIC -------------------------------------------------------------------------
+; This code initializes our two PICs (the primary and the slave).
+	; ICW 1: the first initialization control word to send to the PIC
+	; Bits 7-5: must be 0
+	; Bit 4: initialization bit, 1 since we are initializing the PIC
+	; Bit 3: 0 is level triggered mode, 1 is edge triggered mode. We choose 1 (the default)
+	; Bit 2: ignored by x86, so 0
+	; Bit 1: 0 because there are multiple PICs in the system
+	; Bit 0: 1 so we can send ICW4
+	mov al, 00010001b
+	out 0x20, al	; Primary PIC command register
+	out 0xa0, al	; Slave PIC command register
+
+	; ICW2: second initialization word, used to tell the PIC which interrupts it should trigger
+	mov al, 0x22	; Primary PIC maps IRQ 0 to 7 to interrupt 0x22 to 0x29
+	out 0x21, al	; Primary PIC data register
+	mov al, 0x52	; Slave PIC maps IRQ 8 to 15 to interrupt 0x52 to 0x59
+	out 0xa1, al	; Primary PIC data register
+
+	; ICW3: tell the PICs which IRQ line tu use to comunicate between each other
+	; The format for primary and slave is different!
+	mov al, 00000100b	; Primary PIC: bit 2 is set, so use IRQ2
+	out 0x21, al		; Primary PIC data register
+	mov al, 0x2		; Slave PIC: the byte is 0x2, so use IRQ2
+	out 0xa1, al		; Slave PIC data register
+
+	; ICW4: extra information
+	; Bits 5-7: reserved, must be 0
+	; Bit 4: not supported on x86 (special fully nested mode)
+	; Bit 3: buffered mode. We are not interested, so 0
+	; Bit 2: only use if bit 3 is set, so 0
+	; Bit 1: we also don't need this (automatic EOI on acknowledge pulse), so 0
+	; Bit 0: if 1, 80x86 mode (what we want). If clear, MCS-80/86 mode
+	mov al, 00000001b
+	out 0x21, al		; Primary PIC data register
+	out 0xa1, al		; Slave PIC data regiter
+
+	; Null out the data register
+	xor al, al
+	out 0x21, al
+	out 0xa1, al
 
 ; Input -----------------------------------------
 ; TODO: implement input
@@ -58,6 +99,7 @@ testing:
 ; SUBROUTINES FOR KERNEL ------------------------------------------------------
 ; In this section, there are the subroutines which will be available to the kernel and the programs trough the kernel table.
 ; There are subroutines with multiple entry points (like print_char, print_char_with_attr and scroll), so be careful.
+; TODO: Choose if system calls are to be provided by interrupts or by giving addresses to functions
 ; TODO: Properly comment this mess
 
 ; print_char, print_char_with_attr, scroll subroutines
