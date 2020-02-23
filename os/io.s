@@ -7,7 +7,7 @@
 
 ; MAIN SECTION ----------------------------------------------------------------
 
-
+main:
 ; Video -----------------------------------------
 ; TODO: Check video mode (it should be 0x07 by default, but I have to do more reaserch to understand if it is always true)
 ; TODO: cols and lines shouldn't be constants, since they depend on video mode. Perhaps save them in the kernel table?
@@ -88,6 +88,7 @@
 
 ; PIT (timer) -----------------------------------------------------------------
 	; TODO: Configure timer
+	; TODO: Check if this interrupt handler is really needed (bios should already provide one)
 	; Install interrupt
 	xor bx, bx
 	mov word [4 * pic_irq0_int], irq_0_pit
@@ -100,30 +101,198 @@
 	
 
 ; Keyboard --------------------------------------
-	; TODO: Initialize keyboard (if needed)
+	; Keyboard initialization
+	; TODO: It seems that qemu doesn't emulate ps/2 keyboard specific encoder commands (for example, 0xf0, 0xf8, 0xf9). Not a problem of the os, but it's better to understand why.
+	; TODO: The encoder uses set 2 for scancodes. Decide whether we want the controller to translate it to set 1 or not.
+
+	; At first, we disable the keyboard and the mouse ports to do our configurations safely.
+	; Disable first PS/2 port (keyboard). We will enable it back later.
+	call wait_keyboard_write_ready
+	mov al, 0xad			; Disable first port command
+	out keyb_controller, al		; Write to controller command register
+	; Disable second PS/2 port (mouse). We won't enable it back later.
+	call wait_keyboard_write_ready
+	mov al, 0xa7			; Disable second port command
+	out keyb_controller, al		; Write to controller command register
+
+	; Empty the register in the case it's full of data to read
+	in al, keyb_encoder
+	; Disable IRQs from the two PS/2 lines (keyboard and mouse)
+	call wait_keyboard_write_ready
+	mov al, 0x20
+	out keyb_controller, al		; Ask for controller configuration byte
+	call wait_keyboard_read_ready
+	in al, keyb_encoder		; Read controller configuration byte from encoder
+	and al, 10111100b		; Disable IRQs (bit 0 for first port, bit 1 for second) and translation (bit 6)
+	mov ah, al			; Preserve the configuration byte
+
+	; Tell the controller that we will be overwriting the configuration byte
+	call wait_keyboard_write_ready
+	mov al, 0x60			; Write controller conf byte command
+	out keyb_controller, al		; Write to controller command register
+	; Write back the configuration byte
+	call wait_keyboard_write_ready
+	mov al, ah			; Move the conf byte to al
+	out keyb_encoder, al		; Write the conf byte to the encoder command register
+
+	; Encoder test
+	call wait_keyboard_write_ready
+	mov al, 0xee			; Send echo command
+	out keyb_encoder, al		; Write to encoder command register
+	call wait_keyboard_read_ready
+	in al, keyb_encoder		; Read response from encoder register
+	cmp al, 0xee			; 0x55 = OK
+	jne keyb_error
+
+	; Set encoder to default mode
+	; This means: scan set 2, default typematic rate/delay, all key types enabled (make, break, typematic)
+	mov cx, 255			; Retry 255 times
+.set_encoder_default_mode:
+	call wait_keyboard_write_ready
+	mov al, 0xf6			; Set default mode command
+	out keyb_encoder, al		; Write to encoder command register
+	call wait_keyboard_read_ready
+	in al, keyb_encoder		; Read response from encoder register
+	cmp al, 0xfa			; 0xfa = ACK, everything fine
+	je .self_test
+	loop .set_encoder_default_mode	; Otherwise (0xfe), repeat command
+	jmp keyb_error			; After 255 retries, it's probably time to surrender
+
+.self_test:
+	; Keyboard controller self test
+	call wait_keyboard_write_ready
+	mov al, 0xaa			; Controller self test command
+	out keyb_controller, al		; Write to controller command register
+	call wait_keyboard_read_ready
+	in al, keyb_encoder		; Read response from encoder register
+	cmp al, 0x55			; 0x55 means test ok
+	jne keyb_error			; Otherwise (0xfc), it's an error
+
+	; Some controllers change their status on self test, so write back the configuration byte
+	call wait_keyboard_write_ready
+	mov al, 0x60			; Write controller conf byte command
+	out keyb_controller, al		; Write to controller command register
+	call wait_keyboard_write_ready
+	mov al, ah			; ah still contains the conf byte
+	out keyb_encoder, al		; Write the conf byte to the encoder register
+
+	; Keyboard interface (first ps/2 port) self test
+	; TODO: we could probably try to reset the keyboard once before jumping to error routine
+	call wait_keyboard_write_ready
+	mov al, 0xab			; Keyboard interface self test command
+	out keyb_controller, al		; Write to controller command register
+	call wait_keyboard_read_ready
+	in al, keyb_encoder		; Read response from encoder register
+	test al, al			; 0x00 means test ok
+	jne keyb_error			; Otherwise, it's an error
+
+	; Enable IRQ from first port. We leave the second port IRQ (the mouse) disabled.
+	call wait_keyboard_write_ready
+	mov al, 0x60			; Write controller conf byte command
+	out keyb_controller, al		; Write to controller command register
+	call wait_keyboard_write_ready
+	or ah, 00000001b		; ah stil contains the conf byte. Reenable the keyboard IRQ (bit 0). Leave the mouse IRQ (bit 1) as is (disabled).
+	mov al, ah			; Move conf byte to al
+	out keyb_encoder, al		; Write the conf byte to the encoder register
+
+	; Enable back first port (keyboard)
+	call wait_keyboard_write_ready
+	mov al, 0xae			; Enable first port command
+	out keyb_controller, al		; Write to controller command register
+
 	; Install interrupt
-	xor bx, bx
-	mov word [4 * (pic_irq0_int+1)], irq_1_keyboard
-	mov word [4 * (pic_irq0_int+1) + 2], bx
+	xor bx, bx						; The code segment is 0x0000
+	mov word [4 * (pic_irq0_int+1)], irq_1_keyboard		; Offset
+	mov word [4 * (pic_irq0_int+1) + 2], bx			; Segment
 
 	; Enable interrupt in PIC
-	in al, pic_primary_data
-	and al, 11111101b
-	out 0x21, al
+	in al, pic_primary_data		; Read PIC interrupt mask byte
+	and al, 11111101b		; Clear bit 1 (enable keyboard interrupts)
+	out pic_primary_data, al	; Write back interrupt mask byte
 
 ; KERNEL CALL------------------------------------------------------------------
 
 	; Debug code
-the_end:
+	; Infinite loop before jumping to kernel
+debug_loop:
 	hlt
-	jmp the_end
+	jmp debug_loop
 
 	; Jump to the kernel
 	mov ax, kernel_addr
 	mov bx, io_table
+
 	jmp ax
 	hlt
 
+; TODO: write keyboard error handler (this is a stub)
+keyb_error:
+	mov al, 'E'
+	call print_char
+	hlt
+	jmp keyb_error
+
+; SUBROUTINES
+; wait_keyboard_write_ready subroutine begin
+; Returns when the keyboard controller status byte bit 1 is not set (i.e. the controller is ready to write to)
+; Modified registers: al
+wait_keyboard_write_ready:
+	in al, keyb_controller		; Read controller status register
+	and al, 00000010b		; Bit 1 is input status buffer
+	jnz wait_keyboard_write_ready	; If it's set, the controller is not ready to read
+	ret
+
+; wait_keyboard_read_ready subroutine begin
+; Returns when the keyboard controller status byte bit 0 is not set (i.e. the controller is ready to read to)
+; Modified registers: al
+wait_keyboard_read_ready:
+	in al, keyb_controller		; Read controller status register
+	and al, 00000001b		; Bit 0 is output status buffer
+	jnz wait_keyboard_write_ready	; If it's set, the controller is not ready to read
+	ret
+
+; hex_to_ascii subroutine begin
+; Input: al = hex number to convert
+; Output: ax = two ascii characters (ah high digit, al low digit)
+; Modified registers: ax
+hex_to_ascii:
+	mov ah, al
+	and ah, 11110000b	; High digit
+	; Shift right four times to have the high digit in the 4 low bits of ah
+	shr ah, 1
+	shr ah, 1
+	shr ah, 1
+	shr ah, 1
+	cmp ah, 0x9
+	jle .high_less_than_nine
+.high_more_than_nine:
+	add ah, 'a'-10		; Convert to ascii digit (a-f)
+	jmp .low
+.high_less_than_nine:
+	add ah, '0'		; Convert to ascii digit (0-9)
+.low:
+	and al, 00001111b	; Low digit
+	cmp al, 0x9
+	jle .low_less_than_nine
+.low_more_than_nine:
+	add al, 'a'-10		; Convert to ascii digit (a-f)
+	jmp .end
+.low_less_than_nine:
+	add al, '0'		; Convert to ascii digit (0-9)
+.end:
+	ret
+
+; write_hex subroutine begin
+; Input: al = number to print
+; Modified registers: ax + those modified by print_char
+print_hex:
+	call hex_to_ascii
+	push ax			; Save ascii number
+	mov al, ah		; Move high digit to al
+	call 0x0000:print_char	; Print high digit
+	pop ax			; Restore ascii number
+	call 0x0000:print_char	; Print low digit
+	ret
 
 ; INTERRUPT HANDLERS
 irq_0_pit:
@@ -131,13 +300,14 @@ irq_0_pit:
 	push ax
 
 	; Uncomment these lines to check if the handler works
-	; Interrupts are not preserved if this code is executed!
+	; Registers are not preserved if this code is executed!
 	;push ds
 	;xor ax, ax
 	;mov ds, ax
 	;mov al, 'T'
 	;call 0x0000:print_char
 	;call 0x0000:update_hw_cursor
+	;pop ds
 
 	; OCW2
 	mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
@@ -150,18 +320,30 @@ irq_0_pit:
 irq_1_keyboard:
 	; TODO: implement handler
 	push ax
-	in al, 0x64		; Keyboard command
-	test al, 00000010b	; Ready for read?
-	jnz irq_1_keyboard
+	call wait_keyboard_read_ready
 	in al, 0x60
 
-	; Uncomment these lines to check if the handler works
-	; Interrupts are not preserved if this code is executed!
-	;mov al, 'K'
-	;call 0x0000:print_char
-	;call 0x0000:update_hw_cursor
-	;mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
-	;out 0x20, al
+	; The actual handler code will go here. For now, it prints scancodes for debugging purposes.
+	push bx
+	push cx
+	push dx
+	push di
+	push si
+	call print_hex
+	mov al, ' '
+	call 0x0000:print_char
+	mov al, ' '
+	call 0x0000:print_char
+	call 0x0000:update_hw_cursor
+	pop si
+	pop di
+	pop dx
+	pop cx
+	pop bx
+
+	; OCW2
+	mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
+	out pic_primary_addr, al
 
 	pop ax
 	iret
@@ -171,6 +353,7 @@ irq_1_keyboard:
 ; There are subroutines with multiple entry points (like print_char, print_char_with_attr and scroll), so be careful.
 ; TODO: Choose if system calls are to be provided by interrupts or by giving addresses to functions
 ; TODO: Properly comment this mess
+; TODO: Write which registers are modified
 
 ; print_char, print_char_with_attr, scroll subroutines
 ; TODO: Implement CR and LF characters
@@ -178,12 +361,14 @@ irq_1_keyboard:
 ; print_char subroutine begin
 ; Print a character at the current os cursor, without advancing it.
 ; Input:	al = character to print
+; Modified registers: ax, bx, cx, dl, di, si
 print_char:
 	mov ah, 0x07	; Default character attribute: light grey on black background
 
 ; print_char_with_attr subroutine begin
 ; Like print_char, but the caller provides the character attribute.
 ; Input:	al = character to print, ah = character attribute
+; Modified registers: ax, bx, cx, dl, di, si
 print_char_with_attr:
 	push ax
 	; bx = offset = 2 * (io_col + io_line * cols)
@@ -218,6 +403,7 @@ print_char_with_attr:
 
 ; scroll subroutine begin
 ; Input:	cl = number of lines to scroll
+; Modified registers: ax, cx, dl, si, di
 scroll:
 	push ds			; Preserve data segment
 	push es
@@ -377,4 +563,4 @@ io_vga_reg_compatibility_mode	db 0xd0
 
 ; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector.
 ; This is pretty ugly, but I think it is better to have bpb, io.sys and kernel in the same segment.
-times 512 - ($ - $$)	db 0x00
+times 1024 - ($ - $$)	db 0x00
