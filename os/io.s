@@ -304,9 +304,21 @@ irq_0_pit:
 	;push ds
 	;xor ax, ax
 	;mov ds, ax
+	;push ax
+	;push bx
+	;push cx
+	;push dx
+	;push di
+	;push si
 	;mov al, 'T'
 	;call 0x0000:print_char
 	;call 0x0000:update_hw_cursor
+	;pop si
+	;pop di
+	;pop dx
+	;pop cx
+	;pop bx
+	;pop ax
 	;pop ds
 
 	; OCW2
@@ -318,12 +330,19 @@ irq_0_pit:
 
 
 irq_1_keyboard:
-	; TODO: implement handler
 	push ax
+	push bx
+	push cx
+	push ds
+
+	; Data and subroutines that we need are in segment 0x0000
+	xor ax, ax
+	mov ds, ax
 	call wait_keyboard_read_ready
 	in al, 0x60
 
-	; The actual handler code will go here. For now, it prints scancodes for debugging purposes.
+	; This code is for debugging purposes: it prints the scancodes
+	push ax
 	push bx
 	push cx
 	push dx
@@ -340,11 +359,60 @@ irq_1_keyboard:
 	pop dx
 	pop cx
 	pop bx
+	pop ax
+
+	; This is the actual handler
+	; Our keyboard buffer is a circular buffer.
+	; The position of the next scancode to write to the buffer is pointed by io_keyb_buf_pointer. This is where we store our scancode.
+	; Then, we have to increment it. If after incrementing it we are at the top of the buffer, we make it point back to the beginning of the buffer.
+	; Finally, we update the count of scancodes in the buffer.
+	; If it has reached maximum, we don't increment it, and we also advance the first scancode pointer (since we have already overwritten the first scancode).
+	; This means that if the input is not asked for some times, the keys pressed most early will be ignored and discarded (unfortunately, we don't have infinite memory).
+	; The handler only stores the scancodes in the buffer! It doesn't do any kind of translation.
+	; The translation to ascii or to more manageable keycodes will be done by the kernel when a program asks for keyboad input through a system call.
+	; This is because a IRQ handler should be as short and fast as possible.
+	; TODO: decide the proper size of the buffer (it is saved in io.inc). For now, it is 2048 scancodes, which means approximately 682 key presses and releases.
+
+	; Store the input scancode
+	mov bx, [io_keyb_buf_next_pointer]
+	mov [bx], al
+
+	; Take care of the last scancode pointer
+	inc bx					; Increment the pointer
+	cmp bx, [io_keyb_buf_end]		; The buffer is circular, so we can't simply increment it
+	jl .next_not_end_of_buffer		; If it's below the end of buffer, we keep it as it is
+.next_end_of_buffer:
+	mov bx, [io_keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
+.next_not_end_of_buffer:
+	mov [io_keyb_buf_next_pointer], bx	; In any case, store back the pointer
+
+	; Now take care of the scancodes count (and of the first scancode pointer in case the buffer is full)
+	mov cx, [io_keyb_buf_count]
+	cmp cx, [io_keyb_buf_max]		; Check if the buffer is full
+	jne .max_not_reached			; If it's not, jump
+.max_reached:					; If it is, it means that the first scancode has been overwritten by the last. We have to increment the first pointer
+	mov bx, [io_keyb_buf_first_pointer]
+	inc bx					; Increment the pointer
+	cmp bx, [io_keyb_buf_end]		; The buffer is circular, so we can't simply increment it
+	jl .first_not_end_of_buffer		; If it's below the end of buffer, we keep it as it is
+.first_end_of_buffer:
+	mov bx, [io_keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
+.first_not_end_of_buffer:
+	mov [io_keyb_buf_first_pointer], bx	; The first scancode is now the first one after the last read
+	jmp .end				; Then we jump because we don't want to increment the scancodes count (we are already full)
+
+.max_not_reached:
+	inc cx
+	mov [io_keyb_buf_count], cx		; Save incremented count
+.end:
 
 	; OCW2
 	mov al, 00100000b		; Bit 5 is set: End Of Interrupt (EOI) request
 	out pic_primary_addr, al
 
+	pop ds
+	pop cx
+	pop bx
 	pop ax
 	iret
 
@@ -557,6 +625,14 @@ io_table:
 io_col				db 0x00
 io_line				db 0x00
 io_vga_reg_compatibility_mode	db 0xd0
+
+; Keyboard
+io_keyb_buf_begin		dw kernel_addr + kernel_sys_size_in_bytes
+io_keyb_buf_end			dw kernel_addr + kernel_sys_size_in_bytes + keyb_buf_max
+io_keyb_buf_next_pointer	dw kernel_addr + kernel_sys_size_in_bytes
+io_keyb_buf_first_pointer	dw kernel_addr + kernel_sys_size_in_bytes
+io_keyb_buf_count		dw 0x0000
+io_keyb_buf_max			dw keyb_buf_max
 
 ; I/O subroutines -------------------------------
 ; TODO: insert pointers to every subroutine we wish to pass to kernel

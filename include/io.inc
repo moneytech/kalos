@@ -14,3 +14,4 @@ pic_irq8_int		equ	0x70
 ; Keyboard
 keyb_encoder		equ	0x60
 keyb_controller		equ	0x64
+keyb_buf_max		equ	2048
