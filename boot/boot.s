@@ -55,7 +55,6 @@ bpb_type		db	'FAT12   '
 
 ; MAIN CODE -------------------------------------------------------------------
 start:
-	; TODO: Understand when we can reenable interrupts (other bootloaders seem to do it pretty soon)
 	cli	; Do not disturb, please
 
 	; Set ds and es segments to 0x07c0 (where we are loaded)
@@ -66,7 +65,6 @@ start:
 	; Set stack segment to 0x0000 and stack pointer to ss:0x7c00
 	; This is just below our bootloader.
 	; It makes sense, since we are going to load the os code and data at 0x0000:0x0500
-	; TODO: Not sure if this is the best position, I will decide it after designing the kernel
 	mov ss, ax		; ax is already zero
 	mov sp, 0x7c00
 
@@ -128,14 +126,7 @@ search_kalos_sys:
 	jc err				; CF is set in case of error
 
 ; Jump to IO.SYS
-	; TODO: It is probably better to set cs to 0x0x7c0, so that the kernel can simply access the BPB
-	; Store the absolute address of the IO.SYS file to ax
-
-	xor ax, ax
-	push ax
-	mov ax, io_addr
-	push ax
-	retf
+	jmp 0x0000:io_addr
 
 	mov di, ret_err	; Just in case
 err:
