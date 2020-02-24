@@ -7,11 +7,10 @@
 
 ; MAIN SECTION ----------------------------------------------------------------
 
-main:
 ; Video -----------------------------------------
 ; TODO: Check video mode (it should be 0x07 by default, but I have to do more reaserch to understand if it is always true)
 ; TODO: cols and lines shouldn't be constants, since they depend on video mode. Perhaps save them in the kernel table?
-; TODO: Understand if the VGA hardware cursor is the same used by the teletype int 10,e
+; TODO: Implement a way to use more vga pages (or at least decide if would be useful)
 	mov ax, video_buffer
 	mov es, ax	; Set the extra segment to the VGA video memory for color output
 
@@ -24,7 +23,7 @@ main:
 	call 0x0000:update_os_cursor
 
 ; PIC -------------------------------------------------------------------------
-; This code initializes our two PICs (the primary and the slave).
+; This code initializes our two PICs (the primary and the secondary).
 	; ICW 1: the first initialization control word to send to the PIC
 	; Bits 7-5: must be 0
 	; Bit 4: initialization bit, 1 since we are initializing the PIC
@@ -45,11 +44,11 @@ main:
 	out pic_secondary_data, al	; Secondary PIC data register
 
 	; ICW3: tell the PICs which IRQ line to use to comunicate between each other
-	; The format for primary and slave is different!
+	; The format for primary and secondary is different!
 	mov al, 00000100b		; Primary PIC: bit 2 is set, so use IRQ2
 	out pic_primary_data, al	; Primary PIC data register
-	mov al, 0x2			; Slave PIC: the byte is 0x2, so use IRQ2
-	out pic_secondary_data, al	; Slave PIC data register
+	mov al, 0x2			; Secondary PIC: the byte is 0x2, so use IRQ2
+	out pic_secondary_data, al	; Secondary PIC data register
 
 	; ICW4: extra information
 	; Bits 5-7: reserved, must be 0
@@ -68,7 +67,7 @@ main:
 	; Each bit corresponds to a different IRQ. 1 means IRQ disabled, 0 means IRQ enabled
 	mov al, 11111111b		; Disable all 8 IRQs
 	out pic_primary_data, al	; Write to primary PIC Interrupt Mask Register
-	out pic_secondary_data, al	; Write to slave PIC Interrupt Mask Register
+	out pic_secondary_data, al	; Write to secondary PIC Interrupt Mask Register
 
 	; OCW3: Operational Command Word 3
 	; Bit 7: reserved, must be 0
@@ -102,6 +101,9 @@ main:
 
 ; Keyboard --------------------------------------
 	; Keyboard initialization
+	; This code is long and ugly. Before every read or write operation we have to check if the keyboard controller is ready.
+	; We disable the keyboard not to get disturbed, do some tests, set the keyboard in default mode and enable it back.
+	; We also disable the mouse permanently.
 	; TODO: It seems that qemu doesn't emulate ps/2 keyboard specific encoder commands (for example, 0xf0, 0xf8, 0xf9). Not a problem of the os, but it's better to understand why.
 	; TODO: The encoder uses set 2 for scancodes. Decide whether we want the controller to translate it to set 1 or not.
 
@@ -421,10 +423,8 @@ irq_1_keyboard:
 ; There are subroutines with multiple entry points (like print_char, print_char_with_attr and scroll), so be careful.
 ; TODO: Choose if system calls are to be provided by interrupts or by giving addresses to functions
 ; TODO: Properly comment this mess
-; TODO: Write which registers are modified
 
 ; print_char, print_char_with_attr, scroll subroutines
-; TODO: Implement CR and LF characters
 
 ; print_char subroutine begin
 ; Print a character at the current os cursor, without advancing it.
@@ -438,6 +438,10 @@ print_char:
 ; Input:	al = character to print, ah = character attribute
 ; Modified registers: ax, bx, cx, dl, di, si
 print_char_with_attr:
+	cmp al, `\r`
+	je .carriage_return
+	cmp al, `\n`
+	je .line_feed
 	push ax
 	; bx = offset = 2 * (io_col + io_line * cols)
 	mov al, [io_line]
@@ -452,17 +456,32 @@ print_char_with_attr:
 
 	mov ah, [io_col]
 	inc ah
-	mov [io_col], ah		; Next column
+	mov [io_col], ah	; Next column
+	jmp .check_for_scroll_cols
+
+.carriage_return:
+	xor ah, ah
+	mov [io_col], ah
+	jmp return
+
+.line_feed:
+	mov ah, [io_line]
+	inc ah
+	mov [io_line], ah
+	jmp .check_for_scroll_lines
+
+.check_for_scroll_cols:
 	mov al, cols
 	cmp ah, al
 	jl return		; End of line not reached
 
 	; End of line reached
 	xor ah, ah
-	mov [io_col], ah		; Set column to 0
+	mov [io_col], ah	; Set column to 0
 	mov ah, [io_line]
 	inc ah
 	mov [io_line], ah	; Next line
+.check_for_scroll_lines:
 	mov al, lines
 	cmp ah, al
 	jl return		; End of screen not reached
@@ -515,11 +534,14 @@ return:
 ; update_hw_cursor, set_hw_cursor subroutines
 ; update_hw_cursor subroutine begin
 ; Set the hardware cursor equal to the os cursor
+; Modified registers: ax, bx, cl, dx
 update_hw_cursor:
 	mov al, [io_line]
 	mov bl, [io_col]
 ; set_hw_cursor subroutine begin
 ; Input: al, bl = line and column to set the hw cursor to
+; Modified registers: ax, bh, cl, dx
+; TODO: Set the bios cursor together with the hardware one.
 set_hw_cursor:
 	; Calculate cursor offset (cols*line + col)
 	mov cl, cols
@@ -554,6 +576,7 @@ set_hw_cursor:
 ; update_os_cursor, set_os_cursor subroutines
 ; update_os_cursor subroutine begin
 ; Set the os cursor equal to the hw cursor
+; Modified registers: ax, bx, dx
 update_os_cursor:
 	; Get the current cursor location from the CRT controller.
 	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
@@ -581,8 +604,9 @@ update_os_cursor:
 
 ; set_os_cursor subroutine begin
 ; Input:	al, ah = line and col to set the os cursor to
+; Modifie registers: none
 set_os_cursor:
-	mov [io_line], al	; Current line is cursor / cols
+	mov [io_line], al		; Current line is cursor / cols
 	mov [io_col], ah		; Current col is cursor mod cols
 
 	retf
@@ -595,6 +619,7 @@ set_os_cursor:
 ;  if bit 0 is clear, then the ports are the same as the MDA (MDA compatibility)
 ; This subroutine sets the bit as requested by the caller
 ; Input:	cl = 0xd0 for CGA, 0xb0 for MBA
+; Modified registers: al, dx
 set_vga_register_compatibility_mode: 
 	mov dx, 0x3cc		; VGA miscellaneous output register read port
 	in al, dx		; Read from read port to ax
