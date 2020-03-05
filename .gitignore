@@ -3,8 +3,8 @@ disk.img
 
 # The executables
 boot/boot
-os/io.sys
-os/kalos.sys
+io/io.sys
+kernel/kalos.sys
 
 # Listing files that I sometimes generate for debug
 *.l

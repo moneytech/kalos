@@ -1,22 +1,22 @@
 AS=nasm
 DISK=disk.img
 
-all: boot/boot os/io.sys os/kalos.sys
+all: boot/boot io/io.sys kernel/kalos.sys
 
 boot/boot: boot/boot.s include/geometry.inc
 	$(AS) -i include/  boot/boot.s -o boot/boot
 	dd if=boot/boot of="${DISK}" conv=notrunc	# Copy bootloader to first floppy sector
 
-os/io.sys: os/io.s include/geometry.inc include/io.inc
-	$(AS) -i include/  os/io.s -o os/io.sys
-	mcopy -i "${DISK}" os/io.sys ::
+io/io.sys: io/io.s io/vga.s io/pic.s io/keyb.s include/geometry.inc
+	$(AS) io/io.s -o io/io.sys
+	mcopy -i "${DISK}" io/io.sys ::
 
-os/kalos.sys: os/kalos.s include/geometry.inc
-	$(AS) -i include/  os/kalos.s -o os/kalos.sys
-	mcopy -i "${DISK}" os/kalos.sys ::
+kernel/kalos.sys: kernel/kalos.s include/geometry.inc
+	$(AS) -i include/  kernel/kalos.s -o kernel/kalos.sys
+	mcopy -i "${DISK}" kernel/kalos.sys ::
 
 clean:
-	- rm boot/boot os/io.sys os/kalos.sys
+	- rm boot/boot io/io.sys kernel/kalos.sys
 
 init:
 	/sbin/mkfs.msdos -C "${DISK}" 1440
