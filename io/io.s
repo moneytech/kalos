@@ -9,32 +9,20 @@
 %include "io/vga.s"
 %include "io/pic.s"
 %include "io/keyb.s"
+%include "io/floppy.s"
 
 ; MAIN SECTION ----------------------------------------------------------------
 main:
-	; Initialize video driver: we can now print characters
 	call init_vga
-
-	; Initialize PIC: we can now handle hardware interrupts
 	call init_pic
-
-	; Enable hardware interrupt handling by the CPU
-	; All interrupts are still disabled in the PIC: we enable them separately when we initialize the various devices
-	sti
-
-	; Initialize the keyboard, install the keyboard interrupt and enable keyboard interrupts in the PIT
 	call init_keyb
+	call init_floppy
 
-
-	; Debug code
-	; Infinite loop before jumping to kernel
-debug_loop:
-	hlt
-	jmp debug_loop
+	; Enable hardware interrupt handling by the CPU.
+	sti
 
 	; Jump to the kernel
 	jmp kernel_addr
-
 	hlt
 
 

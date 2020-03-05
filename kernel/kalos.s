@@ -11,19 +11,21 @@
 	int 0x12
 	mov [k_available_memory], ax
 
-mov ah, 0x0e
-mov al, 'K'
-int 0x10
+	mov ah, 0x0e
+	mov al, 'K'
+	int 0x10
 
-mov ah, 0x0e
-mov al, 'E'
-int 0x10
+	mov ah, 0x0e
+	mov al, 'E'
+	int 0x10
 
-mov ah, 0x0e
-mov al, 'R'
-int 0x10
+	mov ah, 0x0e
+	mov al, 'R'
+	int 0x10
 
-hlt
+debug_loop:
+	hlt
+	jmp debug_loop
 
 kernel_table:
 

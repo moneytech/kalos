@@ -7,7 +7,7 @@ boot/boot: boot/boot.s include/geometry.inc
 	$(AS) -i include/  boot/boot.s -o boot/boot
 	dd if=boot/boot of="${DISK}" conv=notrunc	# Copy bootloader to first floppy sector
 
-io/io.sys: io/io.s io/vga.s io/pic.s io/keyb.s include/geometry.inc
+io/io.sys: io/io.s io/vga.s io/pic.s io/keyb.s io/floppy.s include/geometry.inc
 	$(AS) io/io.s -o io/io.sys
 	mcopy -i "${DISK}" io/io.sys ::
 

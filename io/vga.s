@@ -1,25 +1,30 @@
-; INITIALIZATION
+; vga.s
+; The VGA driver
+; The Vector Graphics Adapter is the standard PC Graphics controller.
+; This driver only deals with VGA text modes.
 
-init_vga:
+
+; INITIALIZATION
+; init_vga subroutine begin
 ; TODO: Check video mode (it should be 0x07 by default, but I have to do more reaserch to understand if it is always true)
 ;		Qemu returns mode 0x00, but it's pretty strange since it should be a 40x25 mode.
 ; TODO: COLS and LINES shouldn't be constants, since they depend on video mode.
 ; TODO: Implement a way to use more vga pages (or at least decide if would be useful)
-	mov ax, VIDEO_BUFFER
-	mov es, ax		; Set the extra segment to the VGA video memory for color output
-
+init_vga:
 	; We need to access the CRT controller registers to interact with the hardware cursor on screen.
 	; To do so, we first tell the VGA that we wish to use CGA-compatible port numbers for the CRT registers.
-	mov cl, 0xd0	; 0xd0 is for CGA-compatible mode
+	mov cl, CGA_COMPATIBILITY	; 0xd0 is for CGA-compatible mode
 	call set_vga_register_compatibility_mode
 
 	; We can now get the current cursor location from the CRT controller.
 	call update_os_cursor
 	ret
+; init_vga subroutine end
 
 
 
-; SUBROUTINES FOR KERNEL
+; SOFTWARE INTERRUPTS HANDLERS
+
 ; print_char, print_char_with_attr, scroll subroutines
 
 ; print_char subroutine begin
@@ -39,31 +44,36 @@ print_char_with_attr:
 	cmp al, `\n`
 	je .line_feed
 	push ax
-	; bx = offset = 2 * (vga_col + vga_line * COLS)
-	mov al, [vga_line]
+	; bx = offset = 2 * (col + line * COLS)
+	mov al, [line]
 	mov bl, COLS
-	mul byte bl		; ax = al * bl = vga_line * COLS
+	mul byte bl		; ax = al * bl = line * COLS
 	xor bx, bx
-	mov bl, [vga_col]
-	add bx, ax		; bx += ax = vga_col + vga_line * COLS
+	mov bl, [col]
+	add bx, ax		; bx += ax = col + line * COLS
 	shl bx, 1 		; Multiply bx by 2, because each character occupies two bytes
 	pop ax
-	mov [es:bx], ax		; Move the byte to video memory
 
-	mov ah, [vga_col]
+	push es			; Save extra segment
+	mov cx, VIDEO_BUFFER
+	mov es, cx		; Set the extra segment to the VGA video memory for color output
+	mov [es:bx], ax		; Move the byte to video memory
+	pop es			; Restore the extra segment
+
+	mov ah, [col]
 	inc ah
-	mov [vga_col], ah	; Next column
+	mov [col], ah	; Next column
 	jmp .check_for_scroll_cols
 
 .carriage_return:
 	xor ah, ah
-	mov [vga_col], ah
+	mov [col], ah
 	jmp return
 
 .line_feed:
-	mov ah, [vga_line]
+	mov ah, [line]
 	inc ah
-	mov [vga_line], ah
+	mov [line], ah
 	jmp .check_for_scroll_lines
 
 .check_for_scroll_cols:
@@ -73,10 +83,10 @@ print_char_with_attr:
 
 	; End of line reached
 	xor ah, ah
-	mov [vga_col], ah	; Set column to 0
-	mov ah, [vga_line]
+	mov [col], ah	; Set column to 0
+	mov ah, [line]
 	inc ah
-	mov [vga_line], ah	; Next line
+	mov [line], ah	; Next line
 .check_for_scroll_lines:
 	mov al, LINES
 	cmp ah, al
@@ -88,9 +98,6 @@ print_char_with_attr:
 ; Input:	cl = number of lines to scroll
 ; Modified registers: ax, cx, dl, si, di
 scroll:
-	push ds			; Preserve data segment
-	push es
-	pop ds			; Set ds to video memory (curretly stored in es)
 	mov dl, cl		; Preserve number of lines to scroll
 	mov di, 0x0000		; Set di to start of video memory (we will move things here)
 	mov al, 2*COLS
@@ -101,6 +108,12 @@ scroll:
 	mov cl, COLS
 	mul cl
 	mov cx, ax
+
+	push ds			; Preserve data segment
+	push es			; Preserve extra segment
+	mov bx, VIDEO_BUFFER
+	mov ds, bx		; Set ds to video memory
+	mov es, bx		; Set es to video memory
 	rep movsw
 
 	; Fill last line with spaces
@@ -116,10 +129,12 @@ scroll:
 	inc di
 	loop .last_line
 
+	pop es
 	pop ds
+
 	mov al, LINES
 	sub al, dl
-	mov [vga_line], al
+	mov [line], al
 return:
 	ret
 ; print_char subroutine end
@@ -132,13 +147,18 @@ return:
 ; Set the hardware cursor equal to the os cursor
 ; Modified registers: ax, bx, cl, dx
 update_hw_cursor:
-	mov al, [vga_line]
-	mov bl, [vga_col]
+	mov al, [line]
+	mov bl, [col]
 ; set_hw_cursor subroutine begin
 ; Input: al, bl = line and column to set the hw cursor to
 ; Modified registers: ax, bh, cl, dx
 ; TODO: Set the bios cursor together with the hardware one.
 set_hw_cursor:
+	; Update BIOS cursor location stored in the bios data area
+	; We do this to allow the user to continue using BIOS interrupts, if he desires
+	mov [0x450], bl		; Line
+	mov [0x451], al		; Col
+
 	; Calculate cursor offset (COLS*line + col)
 	mov cl, COLS
 	mul cl
@@ -147,22 +167,22 @@ set_hw_cursor:
 
 	; Set low byte of cursor using the CRT register 0x0f
 	mov dx, 0x304	; CRT address
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f	; Low cursor
 	out dx, al 
 	mov al, bl
 	mov dx, 0x305	; CRT data
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	; Set high byte of cursor using the CRT register 0x0f
 	mov dx, 0x304	; CRT address
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e	; high cursor
 	out dx, al 
 	mov al, bh
 	mov dx, 0x305	; CRT data
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	out dx, al
 
 	ret
@@ -178,19 +198,19 @@ update_os_cursor:
 	; We have to select the register referring to the high and low parts of cursor location by writing the corresponding value to the CRT address port.
 	; Then, we can read the current value of the regsters from the data port.
 	mov dx, 0x304		; CRT address port
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0f		; Low byte of cursor index
 	out dx, al
 	mov dx, 0x305		; CRT data port
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bl, al		; Save low part of cursor
 	mov dx, 0x304		; CRT address port
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	mov al, 0x0e		; High byte of cursor index
 	out dx, al
 	mov dx, 0x305		; CRT data port
-	add dl, [vga_reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
+	add dl, [reg_compatibility_mode]	; 0xd0 if CGA, 0xb0 if MDA
 	in al, dx
 	mov bh, al		; Save high part of cursor
 
@@ -202,8 +222,8 @@ update_os_cursor:
 ; Input:	al, ah = line and col to set the os cursor to
 ; Modifie registers: none
 set_os_cursor:
-	mov [vga_line], al		; Current line is cursor / COLS
-	mov [vga_col], ah		; Current col is cursor mod COLS
+	mov [line], al		; Current line is cursor / COLS
+	mov [col], ah		; Current col is cursor mod COLS
 
 	ret
 ; update_os_cursor subroutine end
@@ -217,7 +237,7 @@ set_os_cursor:
 ; Input:	cl = 0xd0 for CGA, 0xb0 for MBA
 ; Modified registers: al, dx
 set_vga_register_compatibility_mode: 
-	mov dx, 0x3cc		; VGA miscellaneous output register read port
+	mov dx, VGA_MISC_OUTPUT_REGISTER_READ
 	in al, dx		; Read from read port to ax
 	cmp cl, 0xd0
 	je .cga
@@ -227,17 +247,25 @@ set_vga_register_compatibility_mode:
 .cga:
 	or al, 00000001b	; Set the last bit of ax to 1, leaving the others unchanged
 .end:
-	mov dx, 0x3c2		; VGA miscellaneus output register write port
+	mov dx, VGA_MISC_OUTPUT_REGISTER_WRITE
 	out dx, al		; Write back to write port
-	mov [vga_reg_compatibility_mode], cl
+	mov [reg_compatibility_mode], cl
 	ret
 
 ; DATA
-vga_col				db 0x00
-vga_line			db 0x00
-vga_reg_compatibility_mode	db 0xd0
+col			db 0x00
+line			db 0x00
+reg_compatibility_mode	db 0xd0
 
 ; CONSTANTS
 VIDEO_BUFFER		equ	0xb800
 COLS			equ	80
 LINES			equ	25
+
+CGA_COMPATIBILITY	equ	0xd0
+MDA_COMPATIBILITY	equ	0xb0
+
+CRT_ADDRESS_REGISTER		equ	0x304	; The compatibility constant has to be added: the register is 0x3d4 or 0x3b4
+CRT_DATA_REGISTER		equ	0x305	; The compatibility constant has to be added: the register is 0x3d5 or 0x3b5
+VGA_MISC_OUTPUT_REGISTER_READ	equ	0x3cc
+VGA_MISC_OUTPUT_REGISTER_WRITE	equ	0x3cc

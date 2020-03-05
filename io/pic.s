@@ -1,4 +1,11 @@
-; PIC -------------------------------------------------------------------------
+; pic.s
+; The PIC driver
+; The PIC (Programmable Interrupt Controller) is a controller that allows various peripheral devices to ask the CPU to issue interrupts.
+; A standard PC has two PICs. The primary is directly connected to the CPU. The secondary one is connected to the primary by the IRQ line 2
+
+
+; INITIALIZATION
+; init_pic subroutine begin
 ; This code initializes our two PICs (the primary and the secondary).
 init_pic
 	; ICW 1: the first initialization control word to send to the PIC
@@ -58,6 +65,8 @@ init_pic
 	out PIC_SECONDARY_DATA, al
 
 	ret
+; init_pic subroutine begin
+
 
 
 ; CONSTANTS
@@ -67,4 +76,3 @@ PIC_IRQ0_INT		equ	0x08
 PIC_SECONDARY_ADDR	equ	0xa0
 PIC_SECONDARY_DATA	equ	0xa1
 PIC_IRQ8_INT		equ	0x70
-

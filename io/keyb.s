@@ -1,11 +1,15 @@
-; Keyboard --------------------------------------
-	; Keyboard initialization
+; keyb.s
+; The keyboard driver
+
+
+; INITIALIZATION
+; init_keyb subroutine begin
+; TODO: The encoder uses set 2 for scancodes. Decide whether we want the controller to translate it to set 1 or not.
+;	It's probably better to use set 2
 init_keyb:
 	; This code is long and ugly. Before every read or write operation we have to check if the keyboard controller is ready.
 	; We disable the keyboard not to get disturbed, do some tests, set the keyboard in default mode and enable it back.
 	; We also disable the mouse permanently.
-	; TODO: It seems that qemu doesn't emulate ps/2 keyboard specific encoder commands (for example, 0xf0, 0xf8, 0xf9). Not a problem of the os, but it's better to understand why.
-	; TODO: The encoder uses set 2 for scancodes. Decide whether we want the controller to translate it to set 1 or not.
 
 	; At first, we disable the keyboard and the mouse ports to do our configurations safely.
 	; Disable first PS/2 port (keyboard). We will enable it back later.
@@ -102,7 +106,7 @@ init_keyb:
 	mov al, 0xae			; Enable first port command
 	out KEYB_CONTROLLER, al		; Write to controller command register
 
-	; Install interrupt
+	; Install new interrupt handler
 	xor bx, bx						; The code segment is 0x0000
 	mov word [4 * (PIC_IRQ0_INT+1)], irq_1_keyboard		; Offset
 	mov word [4 * (PIC_IRQ0_INT+1) + 2], bx			; Segment
@@ -113,6 +117,7 @@ init_keyb:
 	out PIC_PRIMARY_DATA, al	; Write back interrupt mask byte
 
 	ret
+; init_keyb subroutine end
 
 
 
@@ -136,7 +141,19 @@ wait_keyboard_read_ready:
 	ret
 ; wait_keyboard_read_ready subroutine end
 
+; keyb_error subroutine begin
+; TODO: write keyboard error handler (this is a stub)
+keyb_error:
+	mov al, 'E'
+	call print_char
+	hlt
+	jmp keyb_error
+; keyb_error subroutine end
 
+
+
+; HARDWARE INTERRUPT HANDLER
+; TODO: Consider whether it is a good idea to call the original bios interrupt before returning
 irq_1_keyboard:
 	push ax
 	push bx
@@ -171,7 +188,7 @@ irq_1_keyboard:
 
 	; This is the actual handler
 	; Our keyboard buffer is a circular buffer.
-	; The position of the next scancode to write to the buffer is pointed by io_keyb_buf_pointer. This is where we store our scancode.
+	; The position of the next scancode to write to the buffer is pointed by keyb_buf_pointer. This is where we store our scancode.
 	; Then, we have to increment it. If after incrementing it we are at the top of the buffer, we make it point back to the beginning of the buffer.
 	; Finally, we update the count of scancodes in the buffer.
 	; If it has reached maximum, we don't increment it, and we also advance the first scancode pointer (since we have already overwritten the first scancode).
@@ -182,36 +199,36 @@ irq_1_keyboard:
 	; TODO: decide the proper size of the buffer (it is saved in io.inc). For now, it is 2048 scancodes, which means approximately 682 key presses and releases.
 
 	; Store the input scancode
-	mov bx, [io_keyb_buf_next_pointer]
+	mov bx, [keyb_buf_next_pointer]
 	mov [bx], al
 
 	; Take care of the last scancode pointer
 	inc bx					; Increment the pointer
-	cmp bx, [io_keyb_buf_end]		; The buffer is circular, so we can't simply increment it
+	cmp bx, [keyb_buf_end]		; The buffer is circular, so we can't simply increment it
 	jl .next_not_end_of_buffer		; If it's below the end of buffer, we keep it as it is
 .next_end_of_buffer:
-	mov bx, [io_keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
+	mov bx, [keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
 .next_not_end_of_buffer:
-	mov [io_keyb_buf_next_pointer], bx	; In any case, store back the pointer
+	mov [keyb_buf_next_pointer], bx	; In any case, store back the pointer
 
 	; Now take care of the scancodes count (and of the first scancode pointer in case the buffer is full)
-	mov cx, [io_keyb_buf_count]
-	cmp cx, [io_keyb_buf_max]		; Check if the buffer is full
+	mov cx, [keyb_buf_count]
+	cmp cx, [keyb_buf_max]		; Check if the buffer is full
 	jne .max_not_reached			; If it's not, jump
 .max_reached:					; If it is, it means that the first scancode has been overwritten by the last. We have to increment the first pointer
-	mov bx, [io_keyb_buf_first_pointer]
+	mov bx, [keyb_buf_first_pointer]
 	inc bx					; Increment the pointer
-	cmp bx, [io_keyb_buf_end]		; The buffer is circular, so we can't simply increment it
+	cmp bx, [keyb_buf_end]		; The buffer is circular, so we can't simply increment it
 	jl .first_not_end_of_buffer		; If it's below the end of buffer, we keep it as it is
 .first_end_of_buffer:
-	mov bx, [io_keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
+	mov bx, [keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
 .first_not_end_of_buffer:
-	mov [io_keyb_buf_first_pointer], bx	; The first scancode is now the first one after the last read
+	mov [keyb_buf_first_pointer], bx	; The first scancode is now the first one after the last read
 	jmp .end				; Then we jump because we don't want to increment the scancodes count (we are already full)
 
 .max_not_reached:
 	inc cx
-	mov [io_keyb_buf_count], cx		; Save incremented count
+	mov [keyb_buf_count], cx		; Save incremented count
 .end:
 
 	; OCW2
@@ -224,20 +241,15 @@ irq_1_keyboard:
 	pop ax
 	iret
 
-; TODO: write keyboard error handler (this is a stub)
-keyb_error:
-	mov al, 'E'
-	call print_char
-	hlt
-	jmp keyb_error
+
 
 ; DATA
-io_keyb_buf_begin		dw kernel_addr + kernel_sys_size_in_bytes
-io_keyb_buf_end			dw kernel_addr + kernel_sys_size_in_bytes + KEYB_BUF_MAX
-io_keyb_buf_next_pointer	dw kernel_addr + kernel_sys_size_in_bytes
-io_keyb_buf_first_pointer	dw kernel_addr + kernel_sys_size_in_bytes
-io_keyb_buf_count		dw 0x0000
-io_keyb_buf_max			dw KEYB_BUF_MAX
+keyb_buf_begin		dw kernel_addr + kernel_sys_size_in_bytes
+keyb_buf_end		dw kernel_addr + kernel_sys_size_in_bytes + KEYB_BUF_MAX
+keyb_buf_next_pointer	dw kernel_addr + kernel_sys_size_in_bytes
+keyb_buf_first_pointer	dw kernel_addr + kernel_sys_size_in_bytes
+keyb_buf_count		dw 0x0000
+keyb_buf_max		dw KEYB_BUF_MAX
 
 ; CONSTANTS
 KEYB_ENCODER		equ	0x60
