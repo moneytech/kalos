@@ -18,12 +18,79 @@ main:
 	call init_keyb
 	call init_floppy
 
+	; Install new interrupt handler
+	xor bx, bx				; The code segment is 0x0000
+	mov word [4 * 0x61], io_interrupt	; Offset
+	mov word [4 * 0x61 + 2], bx		; Segment
+
 	; Enable hardware interrupt handling by the CPU.
 	sti
 
 	; Jump to the kernel
 	jmp kernel_addr
 	hlt
+
+
+; SOFTWARE INTERRUPT HANDLER
+; io_interrupt subroutine begin
+; This subroutine calls the io functions indexed by ah.
+; There is no rule about preserved registers: each io functions documents which ones are changed.
+io_interrupt:
+	; Set data segment to zero
+	push ax
+	xor ax, ax
+	mov ds, ax
+	pop ax
+
+	; Set di to the address of the subroutine to call
+	push bx
+	xor bh, bh
+	mov bl, ah
+	shl bx, 1	; Multiply by 2 (each table entry is two bytes long)
+	add bx, io_interrupt_table
+	mov di, [bx]
+	pop bx
+
+	call di
+	iret
+
+; io_interrupt_installed subroutine begin
+; This is a service subroutine. It returns some fixed values. It may be used to check if the handler is installed.
+io_interrupt_installed:
+	mov ax, 0xff
+	mov bx, 0xab
+	mov cx, 0xcd
+	mov dx, 0xef
+	ret
+; io_interrupt_installed subroutine end
+
+; io_interrupt_invalid subroutine begin
+; This is a service subroutine. It returns some fixed values. It is executed when ah is not valid
+io_interrupt_invalid:
+	mov ax, 0xff
+	mov bx, 0xff
+	mov cx, 0xff
+	mov dx, 0xff
+	ret
+; io_interrupt_invalid subroutine end
+
+; Interrupt jump table
+io_interrupt_table:
+; VGA subroutines
+.0x00	dw	print_char
+.0x01	dw	print_char_with_attr
+.0x02	dw	scroll
+.0x03	dw	update_hw_cursor
+.0x04	dw	set_hw_cursor
+.0x05	dw	update_os_cursor
+.0x06	dw	set_os_cursor
+.0x07	dw	set_vga_register_compatibility_mode
+times 0x0f-0x07	dw	io_interrupt_invalid
+; Floppy subroutines
+.0x10	dw	read_sector
+times 0xfe-0x10	dw	io_interrupt_invalid
+.0xff	dw	io_interrupt_installed
+
 
 
 ; SUBROUTINES -----------------------------------------------------------------
@@ -68,12 +135,14 @@ print_hex:
 	call hex_to_ascii
 	push ax			; Save ascii number
 	mov al, ah		; Move high digit to al
-	call print_char	; Print high digit
+	mov ah, 0x00		; int 61,0: print_char
+	int 0x61
 	pop ax			; Restore ascii number
-	call print_char	; Print low digit
+	mov ah, 0x00		; int 61,0: print_char
+	int 0x61
 	ret
 
 
 ; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector.
 ; This is pretty ugly, but I think it is better to have bpb, io.sys and kernel in the same segment.
-times 1024 - ($ - $$)	db 0x00
+times 512*3 - ($ - $$)	db 0x00

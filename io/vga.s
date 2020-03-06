@@ -32,13 +32,14 @@ init_vga:
 ; Input:	al = character to print
 ; Modified registers: ax, bx, cx, dl, di, si
 print_char:
-	mov ah, 0x07	; Default character attribute: light grey on black background
+	mov bl, 0x07	; Default character attribute: light grey on black background
 
 ; print_char_with_attr subroutine begin
 ; Like print_char, but the caller provides the character attribute.
-; Input:	al = character to print, ah = character attribute
+; Input:	al = character to print, bl = character attribute
 ; Modified registers: ax, bx, cx, dl, di, si
 print_char_with_attr:
+	mov ah, bl
 	cmp al, `\r`
 	je .carriage_return
 	cmp al, `\n`
@@ -147,17 +148,18 @@ return:
 ; Set the hardware cursor equal to the os cursor
 ; Modified registers: ax, bx, cl, dx
 update_hw_cursor:
-	mov al, [line]
-	mov bl, [col]
+	mov dh, [line]
+	mov dl, [col]
 ; set_hw_cursor subroutine begin
-; Input: al, bl = line and column to set the hw cursor to
+; Input: dh, dl = line and column to set the hw cursor to
 ; Modified registers: ax, bh, cl, dx
-; TODO: Set the bios cursor together with the hardware one.
 set_hw_cursor:
+	mov al, dh
+	mov bl, dl
 	; Update BIOS cursor location stored in the bios data area
 	; We do this to allow the user to continue using BIOS interrupts, if he desires
-	mov [0x450], bl		; Line
-	mov [0x451], al		; Col
+	mov [0x450], bl		; Col
+	mov [0x451], al		; Line
 
 	; Calculate cursor offset (COLS*line + col)
 	mov cl, COLS
@@ -218,12 +220,16 @@ update_os_cursor:
 	mov bl, COLS
 	div bl
 
+	; Prepare arguments for set_os_cursor
+	mov dh, al
+	mov dl, ah
+
 ; set_os_cursor subroutine begin
-; Input:	al, ah = line and col to set the os cursor to
+; Input:	dh, dl = line and col to set the os cursor to
 ; Modifie registers: none
 set_os_cursor:
-	mov [line], al		; Current line is cursor / COLS
-	mov [col], ah		; Current col is cursor mod COLS
+	mov [line], dh		; Current line is cursor / COLS
+	mov [col], dl		; Current col is cursor mod COLS
 
 	ret
 ; update_os_cursor subroutine end

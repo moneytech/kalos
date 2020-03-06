@@ -20,7 +20,7 @@ start_of_root			equ	start_of_fat + number_of_fats * sectors_per_fat
 fat_size_in_bytes		equ	sectors_per_fat * bytes_per_sector
 root_size_in_sectors		equ	root_entries * 32 / bytes_per_sector
 root_size_in_bytes		equ	root_entries * 32
-io_sys_size_in_bytes		equ	1024
+io_sys_size_in_bytes		equ	1536
 kernel_sys_size_in_bytes	equ	512
 
 bootloader_addr			equ	0x7c00

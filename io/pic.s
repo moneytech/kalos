@@ -7,7 +7,7 @@
 ; INITIALIZATION
 ; init_pic subroutine begin
 ; This code initializes our two PICs (the primary and the secondary).
-init_pic
+init_pic:
 	; ICW 1: the first initialization control word to send to the PIC
 	; Bits 7-5: must be 0
 	; Bit 4: initialization bit, 1 since we are initializing the PIC
