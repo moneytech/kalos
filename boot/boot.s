@@ -57,7 +57,7 @@ bpb_type		db	'FAT12   '
 start:
 	cli	; Do not disturb, please
 
-	; Set ds and es segments to 0x07c0 (where we are loaded)
+	; Set ds and es segments to 0x0000
 	xor ax, ax
 	mov ds, ax
 	mov es, ax
@@ -75,7 +75,7 @@ start:
 load_fat:
 	mov ax, start_of_fat	; LBA of first sector to read
 	mov cx, sectors_per_fat	; Number of sectors to read
-	mov bx, os_base_addr		; Where to load it
+	mov bx, os_base_addr	; Where to load it
 
 	call read_sectors
 	mov di, io_err
@@ -104,7 +104,7 @@ search_io_sys:
 	
 ; Search for the kernel
 search_kalos_sys:
-	mov di, kernel_filename	; Name of the file to search forame
+	mov di, kernel_filename		; Name of the file to search forame
 	call search_file
 	mov ax, [si]			; Save location of first file cluster in FAT
 	mov [kernel_first_cluster], ax	; using ax because mov mem, mem is forbidden
