@@ -12,7 +12,7 @@ io/io.sys: io/io.s io/vga.s io/pic.s io/keyb.s io/floppy.s include/geometry.inc
 	$(AS) io/io.s -o io/io.sys
 	mcopy -i "${DISK}" io/io.sys ::
 
-kernel/kalos.sys: kernel/kalos.s kernel/fat.s include/geometry.inc
+kernel/kalos.sys: kernel/kalos.s kernel/fat.s kernel/term.s include/geometry.inc
 	$(AS) -i include/  kernel/kalos.s -o kernel/kalos.sys
 	mcopy -i "${DISK}" kernel/kalos.sys ::
 
