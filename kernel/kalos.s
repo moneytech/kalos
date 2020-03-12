@@ -54,12 +54,77 @@ go_on:
 
 	; Loop forever
 debug_loop:
-	hlt
+	mov ah, 0x21
+	int 0x61	; int 61,21: get_raw_scancode_buffered
+	cmp cl, 0xaa	; 0xaa means that the keyboard buffer is empty
+	je debug_loop	; If it is, we don't print anything
+	mov al, cl
+	call print_hex
+	mov ah, 0x00
+	mov al, ' '
+	int 0x61
+	mov ah, 0x00
+	mov al, ' '
+	int 0x61
+	mov ah, 0x03
+	int 0x61	; int 61,3: update_hw_cursor
 	jmp debug_loop
+
+; SUBROUTINES
+; These subroutines are needed for debugging purposes and will be removed
+
+; hex_to_ascii subroutine begin
+; Input: al = hex number to convert
+; Output: ax = two ascii characters (ah high digit, al low digit)
+; Modified registers: ax
+hex_to_ascii:
+	mov ah, al
+	and ah, 11110000b	; High digit
+	; Shift right four times to have the high digit in the 4 low bits of ah
+	shr ah, 1
+	shr ah, 1
+	shr ah, 1
+	shr ah, 1
+	cmp ah, 0x9
+	jle .high_less_than_nine
+.high_more_than_nine:
+	add ah, 'a'-10		; Convert to ascii digit (a-f)
+	jmp .low
+.high_less_than_nine:
+	add ah, '0'		; Convert to ascii digit (0-9)
+.low:
+	and al, 00001111b	; Low digit
+	cmp al, 0x9
+	jle .low_less_than_nine
+.low_more_than_nine:
+	add al, 'a'-10		; Convert to ascii digit (a-f)
+	jmp .end
+.low_less_than_nine:
+	add al, '0'		; Convert to ascii digit (0-9)
+.end:
+	ret
+; hex_to_ascii subroutine end
+
+; print_hex subroutine begin
+; Input: al = number to print
+; Modified registers: ax + those modified by print_char
+print_hex:
+	call hex_to_ascii
+	push ax			; Save ascii number
+	mov al, ah		; Move high digit to al
+	mov ah, 0x00		; int 61,0: print_char
+	int 0x61
+	pop ax			; Restore ascii number
+	mov ah, 0x00		; int 61,0: print_char
+	int 0x61
+	ret
+; print_hex subroutine end
+
+
 
 ; DATA
 config_filename		db "CONFIG  SYS"
-welcome_msg		db `\r\n`,"Welcome to KalOS!",0
+welcome_msg		db "Welcome to KalOS!",`\r\n`,0
 
 kernel_table:
 

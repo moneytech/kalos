@@ -1,5 +1,12 @@
 ; keyb.s
 ; The keyboard driver
+; The keyboard can operate in two modes: buffered and unbuffered.
+; In buffered mode, when a key is pressed or released, the scancode is saved in a buffer.
+; 	Later, a program can call an interrupt to get the first scancode available in the buffer,
+;	or the corresponding character if a keyboard layout is provided.
+; In unbuffered mode, the curred status of the keyboard is updated at every key press or release, and can be accessed by programs through an interrupt.
+; TODO: Implement buffered mode
+; TODO: Implement unbuffered mode
 
 
 ; INITIALIZATION
@@ -167,25 +174,30 @@ irq_1_keyboard:
 	in al, 0x60
 
 	; This code is for debugging purposes: it prints the scancodes
-	push ax
-	push bx
-	push cx
-	push dx
-	push di
-	push si
-	call print_hex
-	mov al, ' '
-	call print_char
-	mov al, ' '
-	call print_char
-	call update_hw_cursor
-	pop si
-	pop di
-	pop dx
-	pop cx
-	pop bx
-	pop ax
+;	push ax
+;	push bx
+;	push cx
+;	push dx
+;	push di
+;	push si
+;	call print_hex
+;	mov al, ' '
+;	call print_char
+;	mov al, ' '
+;	call print_char
+;	call update_hw_cursor
+;	pop si
+;	pop di
+;	pop dx
+;	pop cx
+;	pop bx
+;	pop ax
 
+	mov bl, [keyb_mode]
+	test bl, bl
+	jnz .unbuffered
+
+.buffered:
 	; This is the actual handler
 	; Our keyboard buffer is a circular buffer.
 	; The position of the next scancode to write to the buffer is pointed by keyb_buf_pointer. This is where we store our scancode.
@@ -204,7 +216,7 @@ irq_1_keyboard:
 
 	; Take care of the last scancode pointer
 	inc bx					; Increment the pointer
-	cmp bx, [keyb_buf_end]		; The buffer is circular, so we can't simply increment it
+	cmp bx, [keyb_buf_end]			; The buffer is circular, so we can't simply increment it
 	jl .next_not_end_of_buffer		; If it's below the end of buffer, we keep it as it is
 .next_end_of_buffer:
 	mov bx, [keyb_buf_begin]		; Otherwise, we circle back to the beginning of the buffer
@@ -229,6 +241,11 @@ irq_1_keyboard:
 .max_not_reached:
 	inc cx
 	mov [keyb_buf_count], cx		; Save incremented count
+	jmp .end
+
+	; TODO: Implement this
+.unbuffered:
+
 .end:
 
 	; OCW2
@@ -242,6 +259,37 @@ irq_1_keyboard:
 	iret
 
 
+; SOFTWARE INTERRUPT HANDLERS
+; set_keyb_mode subroutine begin
+; Input:	bl = 0 for buffered mode, bl = 1 for unbuffered mode
+set_keyb_mode:
+	mov [keyb_mode], bl
+	ret
+; set_keyb_mode subroutine end
+
+; get_raw_scancode_buffered subroutine begin
+; Output: cl = aa if buffer is empty, otherwise cl = oldest scancode in buffer
+get_raw_scancode_buffered:
+	mov ax, [keyb_buf_count]
+	test ax, ax			; Check if buffer is empty.
+	je .empty_buffer		; If it is, jump to error handling
+	dec ax				; Otherwise, decrease count of scancodes in buffer by one
+	mov [keyb_buf_count], ax
+
+	mov bx, [keyb_buf_first_pointer]
+	mov cl, [bx]			; Put scancode to cl
+	inc bx				; Point to next scancode
+	cmp bx, [keyb_buf_end]		; Check if we are at the end of the buffer
+	jl .not_end_of_buffer		; If we ar not, we are ok
+.end_of_buffer:				; If we are, we need to wrap around our circular buffer
+	mov bx, [keyb_buf_begin]
+.not_end_of_buffer:			; Finally, save the new location of the first available scancde
+	mov [keyb_buf_first_pointer], bx
+	ret
+.empty_buffer:
+	mov cl, 0xaa			; 0xaa is sent by keyboard only when performing a self test.
+	ret				;  Because of this, it should be safe to use as error value, since it can't be a scancode.
+; get_raw_scancode_buffered subroutine end
 
 ; DATA
 keyb_buf_begin		dw kernel_addr + kernel_sys_size_in_bytes
@@ -250,6 +298,7 @@ keyb_buf_next_pointer	dw kernel_addr + kernel_sys_size_in_bytes
 keyb_buf_first_pointer	dw kernel_addr + kernel_sys_size_in_bytes
 keyb_buf_count		dw 0x0000
 keyb_buf_max		dw KEYB_BUF_MAX
+keyb_mode		db 0x00
 
 ; CONSTANTS
 KEYB_ENCODER		equ	0x60

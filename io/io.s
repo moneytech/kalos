@@ -90,7 +90,11 @@ times 0x0f-0x07	dw	io_interrupt_invalid
 .0x10	dw	read_sector
 .0x11	dw	wait_floppy_operation_terminated
 .0x12	dw	get_current_drive
-times 0xfe-0x10	dw	io_interrupt_invalid
+times 0x1f-0x12	dw	io_interrupt_invalid
+; Keyboard subroutines
+.0x20	dw	set_keyb_mode
+.0x21	dw	get_raw_scancode_buffered
+times 0xfe-0x21	dw	io_interrupt_invalid
 .0xff	dw	io_interrupt_installed
 
 
@@ -103,46 +107,48 @@ times 0xfe-0x10	dw	io_interrupt_invalid
 ; Input: al = hex number to convert
 ; Output: ax = two ascii characters (ah high digit, al low digit)
 ; Modified registers: ax
-hex_to_ascii:
-	mov ah, al
-	and ah, 11110000b	; High digit
-	; Shift right four times to have the high digit in the 4 low bits of ah
-	shr ah, 1
-	shr ah, 1
-	shr ah, 1
-	shr ah, 1
-	cmp ah, 0x9
-	jle .high_less_than_nine
-.high_more_than_nine:
-	add ah, 'a'-10		; Convert to ascii digit (a-f)
-	jmp .low
-.high_less_than_nine:
-	add ah, '0'		; Convert to ascii digit (0-9)
-.low:
-	and al, 00001111b	; Low digit
-	cmp al, 0x9
-	jle .low_less_than_nine
-.low_more_than_nine:
-	add al, 'a'-10		; Convert to ascii digit (a-f)
-	jmp .end
-.low_less_than_nine:
-	add al, '0'		; Convert to ascii digit (0-9)
-.end:
-	ret
+;hex_to_ascii:
+;	mov ah, al
+;	and ah, 11110000b	; High digit
+;	; Shift right four times to have the high digit in the 4 low bits of ah
+;	shr ah, 1
+;	shr ah, 1
+;	shr ah, 1
+;	shr ah, 1
+;	cmp ah, 0x9
+;	jle .high_less_than_nine
+;.high_more_than_nine:
+;	add ah, 'a'-10		; Convert to ascii digit (a-f)
+;	jmp .low
+;.high_less_than_nine:
+;	add ah, '0'		; Convert to ascii digit (0-9)
+;.low:
+;	and al, 00001111b	; Low digit
+;	cmp al, 0x9
+;	jle .low_less_than_nine
+;.low_more_than_nine:
+;	add al, 'a'-10		; Convert to ascii digit (a-f)
+;	jmp .end
+;.low_less_than_nine:
+;	add al, '0'		; Convert to ascii digit (0-9)
+;.end:
+;	ret
+; hex_to_ascii subroutine end
 
-; write_hex subroutine begin
+; print_hex subroutine begin
 ; Input: al = number to print
 ; Modified registers: ax + those modified by print_char
-print_hex:
-	call hex_to_ascii
-	push ax			; Save ascii number
-	mov al, ah		; Move high digit to al
-	mov ah, 0x00		; int 61,0: print_char
-	int 0x61
-	pop ax			; Restore ascii number
-	mov ah, 0x00		; int 61,0: print_char
-	int 0x61
-	ret
+;print_hex:
+;	call hex_to_ascii
+;	push ax			; Save ascii number
+;	mov al, ah		; Move high digit to al
+;	mov ah, 0x00		; int 61,0: print_char
+;	int 0x61
+;	pop ax			; Restore ascii number
+;	mov ah, 0x00		; int 61,0: print_char
+;	int 0x61
+;	ret
+; print_hex subroutine end
 
 
 ; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector.
