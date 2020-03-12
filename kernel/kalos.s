@@ -69,7 +69,7 @@ main:
 	; This code is here for debugging purposes. It demonstrates that the search_file and load_file subroutine work properly.
 	; To check it, inspect memory and check if the file is loaded at 0x7e00.
 	; Load CONFIG.SYS
-	mov di, config_filename
+	mov bx, config_filename
 	call search_file
 	test cl, cl
 	jnz config_not_found

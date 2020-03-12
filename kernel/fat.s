@@ -1,14 +1,14 @@
 ; search_file subroutine begin
 ; Search for a file entry in the root directory (located at address os_base_addr)
-; Input:	es:di = Filename to search
+; Input:	es:bx = Filename to search
 ; Output:	If file is found: cl = 0, 0x0000:si = Pointer to the file directory entry
 ;		Otherwise: cl = 1
 ; Modified registers:	bx, cx, dx
 search_file:
 	cld				; We want to auto-increment when comparing strings
-	mov ax, di			; Save di
-	mov bx, root_addr		; bx contains the root address
-	mov si, bx			; Also si
+	mov di, bx			; Move filename to di (so that we can use cmpsb)
+	mov ax, root_addr		; ax contains the root address
+	mov si, ax			; Also si
 	mov cx, root_entries		; cx contains the number of entries to check
 
 .next_entry:
@@ -17,9 +17,9 @@ search_file:
 	repe cmpsb			; Compare es:di (the filename) and ds:si (the root entry name)
 	je .found			; File found (the strings are equal)
 
-	add bx, 0x0020			; The next entry is 32 (0x0020) bytes next to the current one
-	mov si, bx			; Restore the root directory address
-	mov di, ax			; Restore di
+	add ax, 0x0020			; The next entry is 32 (0x0020) bytes next to the current one
+	mov si, ax			; Restore the root directory address
+	mov di, bx			; Restore di
 	xchg cx, dx			; Go back to outer loop (entries)
 	loop .next_entry		; If there are still entries, retry
 
