@@ -34,13 +34,15 @@ search_file:
 ; search_file subroutine end
 
 
-; load_file subroutine begin
+; load_file_synchronous subroutine begin
 ; Loads a file at the specified address
+; This subroutine is synchronous: it returns only after finishing loading the file.
+; I plan to create an asynchronous version later, after I implement the floppy driver (which is needet to use the DMA).
 ; TODO: Properly document the subroutine
 ; Input:	0x0000:si = Directory entry address for the file
 ;		es:bx = Location to load the file
 ; Modified registers:	ax, bx, cx, dx, si
-load_file:
+load_file_synchronous:
 	add si, 26
 	mov dx, [si]
 .load_sector:
@@ -96,3 +98,4 @@ load_file:
 
 .end:
 	ret	
+; load_file_synchronous subroutine end

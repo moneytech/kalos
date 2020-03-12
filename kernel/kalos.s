@@ -26,7 +26,7 @@ main:
 	jnz config_not_found
 config_found:
 	mov bx, 0x7e00
-	call load_file
+	call load_file_synchronous
 	mov al, 'Y'
 	jmp go_on
 config_not_found:
