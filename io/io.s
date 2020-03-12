@@ -88,6 +88,8 @@ io_interrupt_table:
 times 0x0f-0x07	dw	io_interrupt_invalid
 ; Floppy subroutines
 .0x10	dw	read_sector
+.0x11	dw	wait_floppy_operation_terminated
+.0x12	dw	get_current_drive
 times 0xfe-0x10	dw	io_interrupt_invalid
 .0xff	dw	io_interrupt_installed
 

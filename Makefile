@@ -1,7 +1,8 @@
 AS=nasm
 DISK=disk.img
 
-all: boot/boot io/io.sys kernel/kalos.sys
+all: boot/boot io/io.sys kernel/kalos.sys config/config.sys
+	mcopy -i "${DISK}" config/config.sys ::
 
 boot/boot: boot/boot.s include/geometry.inc
 	$(AS) -i include/  boot/boot.s -o boot/boot
@@ -11,7 +12,7 @@ io/io.sys: io/io.s io/vga.s io/pic.s io/keyb.s io/floppy.s include/geometry.inc
 	$(AS) io/io.s -o io/io.sys
 	mcopy -i "${DISK}" io/io.sys ::
 
-kernel/kalos.sys: kernel/kalos.s include/geometry.inc
+kernel/kalos.sys: kernel/kalos.s kernel/fat.s include/geometry.inc
 	$(AS) -i include/  kernel/kalos.s -o kernel/kalos.sys
 	mcopy -i "${DISK}" kernel/kalos.sys ::
 

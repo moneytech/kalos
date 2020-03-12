@@ -282,7 +282,7 @@ load_file:
 	mov cx, 8
 	div word cx	; ax contains the byte and dx the remainder (which can be 0 or 4)
 	mov si, ax
-	add si, os_base_addr
+	add si, fat_addr
 
 	test dx, dx
 	jz .even
