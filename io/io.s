@@ -93,7 +93,7 @@ times 0x0f-0x07	dw	io_interrupt_invalid
 times 0x1f-0x12	dw	io_interrupt_invalid
 ; Keyboard subroutines
 .0x20	dw	set_keyb_mode
-.0x21	dw	get_raw_scancode_buffered
+.0x21	dw	get_keyb_code
 times 0xfe-0x21	dw	io_interrupt_invalid
 .0xff	dw	io_interrupt_installed
 
@@ -153,4 +153,4 @@ times 0xfe-0x21	dw	io_interrupt_invalid
 
 ; If this becomes negative, nasm will not assemble: we need to increase the constant io_sys_length by one sector.
 ; This is pretty ugly, but I think it is better to have bpb, io.sys and kernel in the same segment.
-times 512*3 - ($ - $$)	db 0x00
+times 512*4 - ($ - $$)	db 0x00

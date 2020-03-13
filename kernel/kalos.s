@@ -51,7 +51,6 @@ go_on:
 	mov cx, 19
 	call print_str_with_attr
 
-
 	; Loop forever
 debug_loop:
 	mov ah, 0x21
@@ -138,3 +137,5 @@ k_fat_addr		dw fat_addr
 k_root_addr		dw root_addr
 k_bpb_addr		dw bpb_addr
 k_available_memory	dw 0x0000
+
+times 512 - ($ - $$)	dw 0x00
