@@ -4,6 +4,9 @@ KalOS: a simple real mode 8086 operating system
 KalOS is an operating system for the late IBM and IBM-compatible Personal Computer.
 It aims at being simple, and takes inspiration from OSs from the time (like DOS and CP/M).
 
+## Developement
+I am currently stuck on designing the keyboard driver, which is harder than I thougth. I want do do it right, so I will continue developing it when I feel inspired.
+
 ## Philosophy
 KalOS is a simple operating system. This means that as much complexity as possible is left to the user, or more specifically to user programs.
 I took this design decision since I wanted to keep my OS as small as possible.
